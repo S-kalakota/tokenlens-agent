@@ -87,7 +87,8 @@ No internal DOM injection or private Cursor command is used.
 - Project `beforeSubmitPrompt` hook.
 - Managed hook installation into whichever trusted project is open.
 - Authenticated loopback bridge.
-- `continue: false` response with the estimate in `user_message`.
+- `continue: false` response while the estimate is shown only in the status-bar
+  chip.
 - Conversation-scoped in-memory fingerprint confirmation: first Enter
   estimates, second unchanged Enter sends.
 - Per-workspace enable and disable commands.

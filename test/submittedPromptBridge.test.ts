@@ -17,10 +17,6 @@ import {
   type SubmittedPromptDecision,
 } from '../src/automaticPrompt/submittedPromptBridge';
 import { PromptConfirmationGate } from '../src/promptConfirmationGate';
-import {
-  blockedPromptMessage,
-  estimatePromptByLength,
-} from '../src/simpleEstimator';
 
 interface Registration {
   version: number;
@@ -271,10 +267,8 @@ async function startedBridge(
 }
 
 function blockedDecision(prompt: string): SubmittedPromptDecision {
-  return {
-    continue: false,
-    user_message: blockedPromptMessage(estimatePromptByLength(prompt)),
-  };
+  void prompt;
+  return { continue: false };
 }
 
 async function readRegistration(

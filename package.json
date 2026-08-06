@@ -2,7 +2,7 @@
   "name": "tokenlens-cursor",
   "displayName": "TokenLens for Cursor",
   "description": "Estimate on first Enter and send an unchanged Cursor prompt on the second Enter.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
   "private": true,

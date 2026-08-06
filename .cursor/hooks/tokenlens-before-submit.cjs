@@ -186,11 +186,7 @@ function validDecision(value) {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof value.continue === 'boolean' &&
-    (value.user_message === undefined ||
-      (typeof value.user_message === 'string' &&
-        value.user_message.trim().length > 0 &&
-        value.user_message.length <= 4_000))
+    typeof value.continue === 'boolean'
   );
 }
 

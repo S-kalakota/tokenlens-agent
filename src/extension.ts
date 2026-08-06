@@ -6,7 +6,7 @@ import {
 } from './automaticPrompt/submittedPromptBridge';
 import { ensureSubmittedPromptHook } from './automaticPrompt/projectHookInstaller';
 import { PromptConfirmationGate } from './promptConfirmationGate';
-import { blockedPromptMessage, estimatePromptByLength } from './simpleEstimator';
+import { estimatePromptByLength } from './simpleEstimator';
 import { StatusBarController } from './ui/statusBarController';
 import type { EstimateViewState } from './viewState';
 
@@ -45,10 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const estimate = estimatePromptByLength(submission.prompt);
     viewState = { kind: 'blocked', estimate };
     render();
-    return {
-      continue: false,
-      user_message: blockedPromptMessage(estimate),
-    };
+    return { continue: false };
   };
 
   const synchronizePromptBridge = async (): Promise<void> => {

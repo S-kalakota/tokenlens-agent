@@ -15,8 +15,9 @@ formats.
 2. The hook passes only the submitted prompt to TokenLens over an authenticated
    `127.0.0.1` connection.
 3. TokenLens calculates the estimate, updates the status-bar chip, and returns
-   `continue: false` with an explanatory message.
-4. Cursor pauses the submission before the Agent runs and shows the estimate.
+   `continue: false` without adding a message below the prompt.
+4. Cursor pauses the submission before the Agent runs; the estimate appears
+   only in the TokenLens status-bar chip.
 5. Pressing Enter again on the unchanged prompt returns `continue: true`, so
    Cursor sends it normally.
 
@@ -48,10 +49,10 @@ publish anything.
 6. Type a prompt in Cursor side chat and press **Enter** to estimate it.
 7. Press **Enter** again without editing to send it.
 
-The Agent should not start after the first Enter. Cursor shows the estimate, and
-the status-bar chip changes to the estimated amount. The Agent starts after the
-second unchanged Enter. Run **TokenLens: Disable Enter-to-Estimate Gate** when
-you want one-Enter prompt submission.
+The Agent should not start after the first Enter, and the status-bar chip changes
+to the estimated amount. The Agent starts after the second unchanged Enter. Run
+**TokenLens: Disable Enter-to-Estimate Gate** when you want one-Enter prompt
+submission.
 
 After installing a newly built VSIX while Cursor is already open, run
 **Developer: Reload Window** once from the Command Palette.
@@ -84,9 +85,8 @@ Run or Debugging.
 Expected result:
 
 - The Agent does not start after the first Enter.
-- Cursor reports that TokenLens paused the prompt.
-- The message shows one value such as **Estimated cost: $0.01100**.
-- The status-bar chip shows the same value.
+- The TokenLens status-bar chip shows one value such as **Est. $0.01100**.
+- No TokenLens estimate is added above or below the prompt box.
 - The second unchanged Enter sends the prompt and starts the Agent.
 
 When you enable the gate, TokenLens safely merges its managed

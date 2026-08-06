@@ -19,7 +19,6 @@ interface BridgeRegistration {
 
 export interface SubmittedPromptDecision {
   continue: boolean;
-  user_message?: string;
 }
 
 export interface SubmittedPrompt {
@@ -305,12 +304,7 @@ function validDecision(value: unknown): value is SubmittedPromptDecision {
     typeof value === 'object' &&
     value !== null &&
     'continue' in value &&
-    typeof value.continue === 'boolean' &&
-    (!('user_message' in value) ||
-      value.user_message === undefined ||
-      (typeof value.user_message === 'string' &&
-        value.user_message.trim().length > 0 &&
-        value.user_message.length <= 4_000))
+    typeof value.continue === 'boolean'
   );
 }
 
