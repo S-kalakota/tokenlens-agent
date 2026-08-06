@@ -1,5 +1,8 @@
 'use strict';
 
+// TokenLens managed beforeSubmitPrompt hook. The extension copies this file
+// into the currently open project when the estimate gate is enabled.
+
 const { readFile } = require('node:fs/promises');
 const http = require('node:http');
 const path = require('node:path');

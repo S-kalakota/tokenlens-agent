@@ -35,11 +35,13 @@ submit the prompt again.
 3. Choose **Run → Start Debugging → Run TokenLens in Cursor**. On a Mac where
    `F5` starts Dictation, use `fn+F5` or the menu.
 4. Use the second window titled **Extension Development Host**.
-5. Open **View → Command Palette…** in that second window. Do not type the
+5. Keep this repository open, or open a different project you want to test.
+6. Open **View → Command Palette…** in that second window. Do not type the
    command into the Agent chat.
-6. Run **TokenLens: Enable Enter-to-Estimate Gate** and accept the warning that
+7. Run **TokenLens: Enable Enter-to-Estimate Gate** and accept the warning that
    prompts will be stopped.
-7. Type a prompt in Cursor side chat and press **Enter**.
+8. Wait for the **TokenLens is ready** message, then type a prompt in Cursor
+   side chat and press **Enter**.
 
 Expected result:
 
@@ -48,8 +50,14 @@ Expected result:
 - The message shows one value such as **Estimated cost: $0.01100**.
 - The status-bar chip shows the same value.
 
-If Cursor was already open when `.cursor/hooks.json` changed, run **Developer:
-Reload Window** once in the Extension Development Host.
+When you enable the gate, TokenLens safely merges its managed
+`beforeSubmitPrompt` entry into the project’s `.cursor/hooks.json` and copies
+its forwarding script into `.cursor/hooks/`. It preserves other valid hooks and
+JSON comments. This is what makes the gate work in a project other than the
+TokenLens source repository.
+
+After rebuilding TokenLens itself, run **Developer: Reload Window** once in the
+Extension Development Host so that window loads the new extension bundle.
 
 ## Estimate formula
 
@@ -78,6 +86,8 @@ easy to test: a longer prompt always produces a larger unrounded estimate.
   hidden context, and live draft keystrokes are not read.
 - Prompt text remains in memory and is not written to logs or disk.
 - `.tokenlens/bridge.json` contains only a temporary port and random secret.
+- The managed `.cursor` hook stays in the project after disabling the gate, but
+  it immediately allows prompts through whenever the private bridge is absent.
 - If the extension or bridge is unavailable, the hook fails open and Cursor
   allows the prompt to continue normally.
 

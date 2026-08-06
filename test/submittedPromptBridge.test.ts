@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  ensureSubmittedPromptHook,
+  TOKENLENS_HOOK_SCRIPT_RELATIVE_PATH,
+} from '../src/automaticPrompt/projectHookInstaller';
+import {
   BRIDGE_DIRECTORY_NAME,
   BRIDGE_REGISTRATION_NAME,
   SUBMITTED_PROMPT_PATH,
@@ -139,6 +143,31 @@ describe('SubmittedPromptBridge', () => {
     expect(received).toEqual([prompt]);
   });
 
+  it('blocks a prompt through the hook installed into another project', async () => {
+    const root = await temporaryRoot();
+    const prompt = 'Estimate this prompt in a different project.';
+    await ensureSubmittedPromptHook({
+      workspaceRoots: [root],
+      sourceScriptPath: hookScript,
+    });
+    await startedBridge(root, (submittedPrompt) =>
+      blockedDecision(submittedPrompt),
+    );
+
+    const result = await runHook(
+      root,
+      {
+        hook_event_name: 'beforeSubmitPrompt',
+        prompt,
+        workspace_roots: [root],
+      },
+      join(root, TOKENLENS_HOOK_SCRIPT_RELATIVE_PATH),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(blockedDecision(prompt));
+  });
+
   it('fails open when the extension bridge is not running', async () => {
     const root = await temporaryRoot();
 
@@ -211,9 +240,10 @@ function registrationPath(root: string): string {
 async function runHook(
   root: string,
   input: Record<string, unknown>,
+  scriptPath = hookScript,
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [hookScript], {
+    const child = spawn(process.execPath, [scriptPath], {
       cwd: root,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

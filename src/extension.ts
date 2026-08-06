@@ -3,17 +3,22 @@ import {
   SubmittedPromptBridge,
   type SubmittedPromptDecision,
 } from './automaticPrompt/submittedPromptBridge';
+import { ensureSubmittedPromptHook } from './automaticPrompt/projectHookInstaller';
 import { blockedPromptMessage, estimatePromptByLength } from './simpleEstimator';
 import { StatusBarController } from './ui/statusBarController';
 import type { EstimateViewState } from './viewState';
 
 const ENABLE_GATE_ACTION = 'Enable estimate gate';
 const ESTIMATE_GATE_STATE_KEY = 'enterToEstimateGateV1';
+const HOOK_RELOAD_GRACE_MS = 1_250;
 
 let activePromptBridge: SubmittedPromptBridge | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const statusBar = new StatusBarController();
+  const hookScriptSourcePath = context.asAbsolutePath(
+    '.cursor/hooks/tokenlens-before-submit.cjs',
+  );
   let viewState: EstimateViewState = { kind: 'idle' };
   let promptBridge: SubmittedPromptBridge | undefined;
   let promptBridgeRootsKey = '';
@@ -43,6 +48,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       estimateGateEnabled() && vscode.workspace.isTrusted && roots.length > 0
         ? roots.join('\u0000')
         : '';
+
+    if (nextRootsKey !== '') {
+      await ensureSubmittedPromptHook({
+        workspaceRoots: roots,
+        sourceScriptPath: hookScriptSourcePath,
+      });
+      // Cursor debounces hooks.json file-watcher reloads for one second. Do not
+      // report the gate as ready until that reload has had time to complete.
+      await delay(HOOK_RELOAD_GRACE_MS);
+    }
 
     if (
       nextRootsKey !== '' &&
@@ -88,9 +103,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       await transition;
       return true;
-    } catch {
+    } catch (error) {
+      const reason =
+        error instanceof Error ? ` ${error.message}` : ' An unknown error occurred.';
       await vscode.window.showWarningMessage(
-        'TokenLens could not start the estimate gate. Cursor prompts will continue normally.',
+        `TokenLens could not prepare the estimate gate. Cursor prompts will continue normally.${reason}`,
       );
       return false;
     }
@@ -125,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       {
         modal: true,
         detail:
-          'While enabled, every side-chat prompt is stopped before the Agent runs. Cursor shows one local dollar estimate based only on prompt length. Disable the gate when you want prompts to run normally.',
+          'While enabled, every side-chat prompt is stopped before the Agent runs. TokenLens adds its managed Cursor hook to the open project and shows one local dollar estimate based only on prompt length. Disable the gate when you want prompts to run normally.',
       },
       ENABLE_GATE_ACTION,
     );
@@ -137,6 +154,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     viewState = { kind: 'idle' };
     if (!(await queuePromptBridgeSync())) {
       await context.workspaceState.update(ESTIMATE_GATE_STATE_KEY, false);
+    } else {
+      await vscode.window.showInformationMessage(
+        'TokenLens is ready. Press Enter in side chat to stop the prompt and see its estimate.',
+      );
     }
     render();
   };
@@ -217,7 +238,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   );
 
-  await queuePromptBridgeSync();
+  if (!(await queuePromptBridgeSync()) && estimateGateEnabled()) {
+    await context.workspaceState.update(ESTIMATE_GATE_STATE_KEY, false);
+    render();
+  }
 }
 
 export async function deactivate(): Promise<void> {
@@ -233,6 +257,10 @@ function fileWorkspaceRoots(): string[] {
       .map(({ uri }) => uri.fsPath)
       .sort() ?? []
   );
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 interface ActionItem extends vscode.QuickPickItem {

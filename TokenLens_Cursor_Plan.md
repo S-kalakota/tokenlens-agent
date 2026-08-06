@@ -83,6 +83,7 @@ No internal DOM injection or private Cursor command is used.
 ### Phase 2: Enter-to-estimate gate
 
 - Project `beforeSubmitPrompt` hook.
+- Managed hook installation into whichever trusted project is open.
 - Authenticated loopback bridge.
 - `continue: false` response with the estimate in `user_message`.
 - Per-workspace enable and disable commands.
@@ -92,6 +93,8 @@ No internal DOM injection or private Cursor command is used.
 
 - Unit tests for the formula and presentation.
 - Integration tests covering hook → bridge → blocking response.
+- Cross-project hook-install tests, including preservation of existing JSONC
+  comments and hooks.
 - Tests confirming prompts are not written to the registration file.
 - TypeScript and production-bundle validation.
 
