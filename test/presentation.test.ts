@@ -22,11 +22,11 @@ describe('buildStatusBarPresentation', () => {
     ).toEqual({
       text: '$(shield) Enter → estimate',
       accessibilityLabel:
-        'TokenLens estimate gate enabled. Submitted prompts will be stopped. Open actions.',
+        'TokenLens estimate gate enabled. First Enter estimates; second unchanged Enter sends. Open actions.',
       tooltipParagraphs: [
         'TokenLens estimate gate is enabled.',
-        'Press Enter in Cursor side chat to stop the prompt and see its length-based estimate.',
-        'Disable the gate when you want Cursor to run prompts normally.',
+        'First Enter in Cursor side chat pauses the prompt and shows its length-based estimate.',
+        'Second Enter sends it if it is unchanged. Editing it requires a new estimate first.',
       ],
     });
   });
@@ -42,14 +42,15 @@ describe('buildStatusBarPresentation', () => {
     ).toEqual({
       text: '$(stop-circle) Est. $0.01100',
       accessibilityLabel:
-        'TokenLens stopped the last prompt. Estimated cost $0.01100. Open actions.',
+        'TokenLens estimated and paused the last prompt. Estimated cost $0.01100. Press Enter again unchanged to send. Open actions.',
       tooltipParagraphs: [
-        'TokenLens · Prompt stopped',
+        'TokenLens · Prompt estimated and paused',
         'Estimated cost: $0.01100',
         'Prompt length: 1,000 characters',
         'Approximate input size: 250 tokens',
         'This is a simple local estimate based only on prompt length.',
-        'The Agent did not run. Disable the estimate gate to allow prompts through.',
+        'The Agent did not run. Press Enter again without editing to send the prompt.',
+        'If you edit it, the next Enter estimates again and one more Enter sends it.',
       ],
     });
   });

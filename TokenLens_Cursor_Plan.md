@@ -9,13 +9,15 @@ Build one local estimate gate for Cursor side chat:
 3. Cursor's supported `beforeSubmitPrompt` hook sends only that submitted prompt
    to the running TokenLens extension.
 4. TokenLens calculates one length-based dollar estimate.
-5. TokenLens returns `continue: false`, so the prompt stops before the Agent
+5. TokenLens returns `continue: false`, so the prompt pauses before the Agent
    runs.
 6. Cursor tells the user the estimate and the status-bar chip shows the same
    value.
+7. A second Enter sends the prompt if it is unchanged. Editing it requires a
+   new estimate and then one more unchanged Enter.
 
-The gate remains active until the user disables it. Disabling it allows prompts
-to run normally.
+The gate remains active until the user disables it. Disabling it restores
+one-Enter prompt submission.
 
 ## Single supported estimate
 
@@ -64,7 +66,7 @@ No internal DOM injection or private Cursor command is used.
 ## Privacy and security
 
 - Gate activation requires an explicit per-workspace confirmation.
-- The project hook forwards only prompt text.
+- The project hook forwards only prompt text and a conversation identifier.
 - Attachments, files, hidden context, and chat history are excluded.
 - The bridge binds only to `127.0.0.1` and requires a random per-session token.
 - Prompt text is never persisted.
@@ -86,6 +88,8 @@ No internal DOM injection or private Cursor command is used.
 - Managed hook installation into whichever trusted project is open.
 - Authenticated loopback bridge.
 - `continue: false` response with the estimate in `user_message`.
+- Conversation-scoped in-memory fingerprint confirmation: first Enter
+  estimates, second unchanged Enter sends.
 - Per-workspace enable and disable commands.
 - Fail-open behavior when the bridge is unavailable.
 

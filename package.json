@@ -1,8 +1,8 @@
 {
   "name": "tokenlens-cursor",
   "displayName": "TokenLens for Cursor",
-  "description": "Stop submitted Cursor prompts and show one local length-based dollar estimate.",
-  "version": "0.2.1",
+  "description": "Estimate on first Enter and send an unchanged Cursor prompt on the second Enter.",
+  "version": "0.3.0",
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
   "private": true,

@@ -13,8 +13,10 @@ import {
   BRIDGE_REGISTRATION_NAME,
   SUBMITTED_PROMPT_PATH,
   SubmittedPromptBridge,
+  type SubmittedPrompt,
   type SubmittedPromptDecision,
 } from '../src/automaticPrompt/submittedPromptBridge';
+import { PromptConfirmationGate } from '../src/promptConfirmationGate';
 import {
   blockedPromptMessage,
   estimatePromptByLength,
@@ -63,10 +65,10 @@ describe('SubmittedPromptBridge', () => {
 
   it('accepts an authenticated loopback prompt without persisting it', async () => {
     const root = await temporaryRoot();
-    const received: string[] = [];
-    const bridge = await startedBridge(root, (prompt) => {
-      received.push(prompt);
-      return blockedDecision(prompt);
+    const received: SubmittedPrompt[] = [];
+    const bridge = await startedBridge(root, (submission) => {
+      received.push(submission);
+      return blockedDecision(submission.prompt);
     });
     const { registration, raw } = await readRegistration(root);
     const prompt = 'Estimate this submitted side-chat prompt.';
@@ -80,13 +82,18 @@ describe('SubmittedPromptBridge', () => {
           authorization: `Bearer ${registration.token}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({
+          prompt,
+          conversation_id: 'conversation-direct',
+        }),
       },
     );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(blockedDecision(prompt));
-    expect(received).toEqual([prompt]);
+    expect(received).toEqual([
+      { prompt, conversationId: 'conversation-direct' },
+    ]);
     expect(await readFile(registrationPath(root), 'utf8')).not.toContain(prompt);
 
     await bridge.stop();
@@ -97,10 +104,10 @@ describe('SubmittedPromptBridge', () => {
 
   it('rejects a request that does not have the per-session secret', async () => {
     const root = await temporaryRoot();
-    const received: string[] = [];
-    await startedBridge(root, (prompt) => {
-      received.push(prompt);
-      return blockedDecision(prompt);
+    const received: SubmittedPrompt[] = [];
+    await startedBridge(root, (submission) => {
+      received.push(submission);
+      return blockedDecision(submission.prompt);
     });
     const { registration } = await readRegistration(root);
 
@@ -122,16 +129,17 @@ describe('SubmittedPromptBridge', () => {
 
   it('receives Cursor beforeSubmitPrompt input through the project hook', async () => {
     const root = await temporaryRoot();
-    const received: string[] = [];
-    await startedBridge(root, (submittedPrompt) => {
-      received.push(submittedPrompt);
-      return blockedDecision(submittedPrompt);
+    const received: SubmittedPrompt[] = [];
+    await startedBridge(root, (submission) => {
+      received.push(submission);
+      return blockedDecision(submission.prompt);
     });
     const prompt = 'Automatically recalculate this prompt.';
 
     const result = await runHook(root, {
       hook_event_name: 'beforeSubmitPrompt',
       prompt,
+      conversation_id: 'conversation-hook',
       model: 'example-model',
       attachments: [{ type: 'file', file_path: '/not-forwarded.txt' }],
       workspace_roots: [root],
@@ -140,7 +148,9 @@ describe('SubmittedPromptBridge', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toEqual(blockedDecision(prompt));
-    expect(received).toEqual([prompt]);
+    expect(received).toEqual([
+      { prompt, conversationId: 'conversation-hook' },
+    ]);
   });
 
   it('blocks a prompt through the hook installed into another project', async () => {
@@ -150,8 +160,8 @@ describe('SubmittedPromptBridge', () => {
       workspaceRoots: [root],
       sourceScriptPath: hookScript,
     });
-    await startedBridge(root, (submittedPrompt) =>
-      blockedDecision(submittedPrompt),
+    await startedBridge(root, (submission) =>
+      blockedDecision(submission.prompt),
     );
 
     const result = await runHook(
@@ -166,6 +176,47 @@ describe('SubmittedPromptBridge', () => {
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual(blockedDecision(prompt));
+  });
+
+  it('estimates first, sends unchanged second, and re-estimates after edits', async () => {
+    const root = await temporaryRoot();
+    const gate = new PromptConfirmationGate();
+    await startedBridge(root, (submission) =>
+      gate.shouldContinue(submission)
+        ? { continue: true }
+        : blockedDecision(submission.prompt),
+    );
+    const baseInput = {
+      hook_event_name: 'beforeSubmitPrompt',
+      conversation_id: 'conversation-two-enter',
+      workspace_roots: [root],
+    };
+    const originalPrompt = 'Implement the requested change.';
+    const editedPrompt = 'Implement the requested change and add tests.';
+
+    const first = await runHook(root, {
+      ...baseInput,
+      prompt: originalPrompt,
+    });
+    const second = await runHook(root, {
+      ...baseInput,
+      prompt: originalPrompt,
+    });
+    const editedFirst = await runHook(root, {
+      ...baseInput,
+      prompt: editedPrompt,
+    });
+    const editedSecond = await runHook(root, {
+      ...baseInput,
+      prompt: editedPrompt,
+    });
+
+    expect(JSON.parse(first.stdout)).toEqual(blockedDecision(originalPrompt));
+    expect(JSON.parse(second.stdout)).toEqual({ continue: true });
+    expect(JSON.parse(editedFirst.stdout)).toEqual(
+      blockedDecision(editedPrompt),
+    );
+    expect(JSON.parse(editedSecond.stdout)).toEqual({ continue: true });
   });
 
   it('fails open when the extension bridge is not running', async () => {
@@ -207,7 +258,7 @@ async function temporaryRoot(): Promise<string> {
 async function startedBridge(
   root: string,
   onPrompt: (
-    prompt: string,
+    submission: SubmittedPrompt,
   ) => SubmittedPromptDecision | Promise<SubmittedPromptDecision>,
 ): Promise<SubmittedPromptBridge> {
   const bridge = new SubmittedPromptBridge({

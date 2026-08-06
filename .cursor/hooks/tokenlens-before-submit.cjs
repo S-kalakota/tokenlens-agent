@@ -31,7 +31,13 @@ async function main() {
     return allowPrompt();
   }
 
-  return (await requestDecision(registration, input.prompt)) ?? allowPrompt();
+  return (
+    (await requestDecision(
+      registration,
+      input.prompt,
+      conversationIdentifier(input),
+    )) ?? allowPrompt()
+  );
 }
 
 async function readHookInput() {
@@ -95,8 +101,26 @@ function validRegistration(value) {
   );
 }
 
-async function requestDecision(registration, prompt) {
-  const body = JSON.stringify({ prompt });
+function conversationIdentifier(input) {
+  for (const key of ['conversation_id', 'session_id']) {
+    const value = input[key];
+    if (
+      typeof value === 'string' &&
+      value.trim().length > 0 &&
+      value.length <= 256
+    ) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+async function requestDecision(registration, prompt, conversationId) {
+  const body = JSON.stringify(
+    conversationId === undefined
+      ? { prompt }
+      : { prompt, conversation_id: conversationId },
+  );
 
   return new Promise((resolve) => {
     let settled = false;

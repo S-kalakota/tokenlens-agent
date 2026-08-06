@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import {
   SubmittedPromptBridge,
+  type SubmittedPrompt,
   type SubmittedPromptDecision,
 } from './automaticPrompt/submittedPromptBridge';
 import { ensureSubmittedPromptHook } from './automaticPrompt/projectHookInstaller';
+import { PromptConfirmationGate } from './promptConfirmationGate';
 import { blockedPromptMessage, estimatePromptByLength } from './simpleEstimator';
 import { StatusBarController } from './ui/statusBarController';
 import type { EstimateViewState } from './viewState';
@@ -24,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let promptBridgeRootsKey = '';
   let bridgeTransition: Promise<void> = Promise.resolve();
   let bridgeDisposed = false;
+  const confirmationGate = new PromptConfirmationGate();
 
   const estimateGateEnabled = (): boolean =>
     context.workspaceState.get<boolean>(ESTIMATE_GATE_STATE_KEY, false);
@@ -32,8 +35,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBar.render(viewState, { gateEnabled: estimateGateEnabled() });
   };
 
-  const handleSubmittedPrompt = (prompt: string): SubmittedPromptDecision => {
-    const estimate = estimatePromptByLength(prompt);
+  const handleSubmittedPrompt = (
+    submission: SubmittedPrompt,
+  ): SubmittedPromptDecision => {
+    if (confirmationGate.shouldContinue(submission)) {
+      return { continue: true };
+    }
+
+    const estimate = estimatePromptByLength(submission.prompt);
     viewState = { kind: 'blocked', estimate };
     render();
     return {
@@ -48,6 +57,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       estimateGateEnabled() && vscode.workspace.isTrusted && roots.length > 0
         ? roots.join('\u0000')
         : '';
+
+    if (nextRootsKey !== promptBridgeRootsKey) {
+      confirmationGate.clear();
+    }
 
     if (nextRootsKey !== '') {
       await ensureSubmittedPromptHook({
@@ -116,7 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (estimateGateEnabled()) {
       if (await queuePromptBridgeSync()) {
         await vscode.window.showInformationMessage(
-          'The TokenLens estimate gate is already enabled. Pressing Enter stops the prompt before the Agent runs.',
+          'The TokenLens estimate gate is already enabled. First Enter shows the estimate; second Enter sends an unchanged prompt.',
         );
       }
       return;
@@ -141,7 +154,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       {
         modal: true,
         detail:
-          'While enabled, every side-chat prompt is stopped before the Agent runs. TokenLens adds its managed Cursor hook to the open project and shows one local dollar estimate based only on prompt length. Disable the gate when you want prompts to run normally.',
+          'While enabled, the first Enter stops a side-chat prompt and shows its local length-based estimate. Press Enter again without editing to send it. Editing the prompt requires a new estimate before it can be sent.',
       },
       ENABLE_GATE_ACTION,
     );
@@ -155,13 +168,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await context.workspaceState.update(ESTIMATE_GATE_STATE_KEY, false);
     } else {
       await vscode.window.showInformationMessage(
-        'TokenLens is ready. Press Enter in side chat to stop the prompt and see its estimate.',
+        'TokenLens is ready. First Enter estimates; second Enter sends the unchanged prompt.',
       );
     }
     render();
   };
 
   const disableEstimateGate = async (): Promise<void> => {
+    confirmationGate.clear();
     await context.workspaceState.update(ESTIMATE_GATE_STATE_KEY, false);
     await queuePromptBridgeSync();
     viewState = { kind: 'idle' };
@@ -172,6 +186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const clearEstimate = (): void => {
+    confirmationGate.clear();
     viewState = { kind: 'idle' };
     render();
   };
@@ -186,7 +201,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
         : {
             label: '$(shield) Enable Enter-to-estimate gate',
-            description: 'Stop each submitted prompt and show its estimate',
+            description: 'Estimate first; send unchanged on second Enter',
             command: 'tokenlens.enableEstimateGate',
           },
       ...(viewState.kind === 'blocked'

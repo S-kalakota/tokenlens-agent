@@ -37,9 +37,10 @@ export function estimatePromptByLength(prompt: string): PromptEstimate {
 
 export function blockedPromptMessage(estimate: PromptEstimate): string {
   return [
-    'TokenLens stopped this prompt before the Agent ran.',
+    'TokenLens paused this prompt before the Agent ran.',
     `Estimated cost: ${estimate.formattedCost}`,
     `Prompt length: ${estimate.characterCount.toLocaleString('en-US')} characters (about ${estimate.estimatedTokens.toLocaleString('en-US')} tokens).`,
-    'This local estimate increases with prompt length. Disable the TokenLens estimate gate to allow prompts to run.',
+    'Press Enter again without editing to send this prompt.',
+    'If you edit it, the next Enter recalculates the estimate and one more Enter sends it.',
   ].join('\n');
 }

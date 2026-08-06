@@ -35,9 +35,11 @@ describe('estimatePromptByLength', () => {
       estimatePromptByLength('a'.repeat(1_000)),
     );
 
-    expect(message).toContain('stopped this prompt before the Agent ran');
+    expect(message).toContain('paused this prompt before the Agent ran');
     expect(message).toContain('Estimated cost: $0.01100');
     expect(message).toContain('1,000 characters');
     expect(message).toContain('about 250 tokens');
+    expect(message).toContain('Press Enter again without editing');
+    expect(message).toContain('next Enter recalculates the estimate');
   });
 });

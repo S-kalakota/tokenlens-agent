@@ -22,10 +22,15 @@ export interface SubmittedPromptDecision {
   user_message?: string;
 }
 
+export interface SubmittedPrompt {
+  prompt: string;
+  conversationId?: string;
+}
+
 export interface SubmittedPromptBridgeOptions {
   workspaceRoots: readonly string[];
   onPrompt: (
-    prompt: string,
+    submission: SubmittedPrompt,
   ) => SubmittedPromptDecision | Promise<SubmittedPromptDecision>;
 }
 
@@ -121,15 +126,15 @@ export class SubmittedPromptBridge {
       return;
     }
 
-    const prompt = parsePrompt(body);
-    if (prompt === undefined) {
+    const submission = parseSubmittedPrompt(body);
+    if (submission === undefined) {
       respond(response, 400);
       return;
     }
 
     let decision: SubmittedPromptDecision;
     try {
-      decision = await this.options.onPrompt(prompt);
+      decision = await this.options.onPrompt(submission);
     } catch {
       respond(response, 500);
       return;
@@ -262,7 +267,7 @@ async function readRequestBody(request: IncomingMessage): Promise<string | undef
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function parsePrompt(body: string): string | undefined {
+function parseSubmittedPrompt(body: string): SubmittedPrompt | undefined {
   try {
     const value: unknown = JSON.parse(body);
     if (
@@ -275,7 +280,21 @@ function parsePrompt(body: string): string | undefined {
     ) {
       return undefined;
     }
-    return value.prompt;
+
+    if (!('conversation_id' in value)) {
+      return { prompt: value.prompt };
+    }
+    if (
+      typeof value.conversation_id !== 'string' ||
+      value.conversation_id.trim().length === 0 ||
+      value.conversation_id.length > 256
+    ) {
+      return undefined;
+    }
+    return {
+      prompt: value.prompt,
+      conversationId: value.conversation_id,
+    };
   } catch {
     return undefined;
   }

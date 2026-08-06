@@ -1,9 +1,9 @@
 # TokenLens for Cursor
 
 TokenLens is a deliberately small Cursor extension with one behavior: when its
-estimate gate is enabled, pressing **Enter** in Cursor side chat stops the prompt
-before the Agent runs and shows one local dollar estimate based on prompt
-length.
+estimate gate is enabled, the first **Enter** in Cursor side chat pauses the
+prompt before the Agent runs and shows one local dollar estimate based on prompt
+length. A second **Enter** sends it if the prompt is unchanged.
 
 There are no subscription/API modes, HTTP estimator endpoints, mock scenarios,
 model settings, clipboard capture, selected-text capture, or alternate display
@@ -16,11 +16,14 @@ formats.
    `127.0.0.1` connection.
 3. TokenLens calculates the estimate, updates the status-bar chip, and returns
    `continue: false` with an explanatory message.
-4. Cursor stops the submission before the Agent runs and shows the estimate.
+4. Cursor pauses the submission before the Agent runs and shows the estimate.
+5. Pressing Enter again on the unchanged prompt returns `continue: true`, so
+   Cursor sends it normally.
 
-While the gate is enabled, every submitted prompt is blocked. Run **TokenLens:
-Disable Enter-to-Estimate Gate** when you want prompts to run normally, then
-submit the prompt again.
+If the prompt is edited after its estimate, the changed text is treated as a
+new prompt: the next Enter recalculates and pauses it, and one more unchanged
+Enter sends it. Run **TokenLens: Disable Enter-to-Estimate Gate** to bypass this
+two-step workflow entirely.
 
 ## Install and use it in normal Cursor
 
@@ -42,11 +45,13 @@ publish anything.
    estimate gate**.
 5. Wait for **TokenLens is ready** and check that the bottom status bar says
    **Enter → estimate**.
-6. Type a prompt in Cursor side chat and press **Enter**.
+6. Type a prompt in Cursor side chat and press **Enter** to estimate it.
+7. Press **Enter** again without editing to send it.
 
-The Agent should not start. Cursor shows the estimate, and the status-bar chip
-changes to the estimated amount. Run **TokenLens: Disable Enter-to-Estimate
-Gate** when you want prompts to run normally.
+The Agent should not start after the first Enter. Cursor shows the estimate, and
+the status-bar chip changes to the estimated amount. The Agent starts after the
+second unchanged Enter. Run **TokenLens: Disable Enter-to-Estimate Gate** when
+you want one-Enter prompt submission.
 
 After installing a newly built VSIX while Cursor is already open, run
 **Developer: Reload Window** once from the Command Palette.
@@ -73,14 +78,16 @@ Run or Debugging.
 7. Run **TokenLens: Enable Enter-to-Estimate Gate** and accept the warning that
    prompts will be stopped.
 8. Wait for the **TokenLens is ready** message, then type a prompt in Cursor
-   side chat and press **Enter**.
+   side chat and press **Enter** to estimate it. Press **Enter** again without
+   editing to send it.
 
 Expected result:
 
-- The Agent does not start.
-- Cursor reports that TokenLens stopped the prompt.
+- The Agent does not start after the first Enter.
+- Cursor reports that TokenLens paused the prompt.
 - The message shows one value such as **Estimated cost: $0.01100**.
 - The status-bar chip shows the same value.
+- The second unchanged Enter sends the prompt and starts the Agent.
 
 When you enable the gate, TokenLens safely merges its managed
 `beforeSubmitPrompt` entry into the project’s `.cursor/hooks.json` and copies
@@ -114,9 +121,12 @@ easy to test: a longer prompt always produces a larger unrounded estimate.
 ## Privacy and failure behavior
 
 - Enabling the gate requires explicit consent for that workspace.
-- Only the submitted prompt is forwarded. Attachments, files, chat history,
-  hidden context, and live draft keystrokes are not read.
+- Only the submitted prompt and Cursor's conversation identifier are forwarded.
+  Attachments, files, chat history, hidden context, and live draft keystrokes
+  are not read.
 - Prompt text remains in memory and is not written to logs or disk.
+- Pending confirmation stores only an in-memory SHA-256 prompt fingerprint, not
+  the prompt text, and is cleared after the unchanged prompt is allowed.
 - `.tokenlens/bridge.json` contains only a temporary port and random secret.
 - The managed `.cursor` hook stays in the project after disabling the gate, but
   it immediately allows prompts through whenever the private bridge is absent.
