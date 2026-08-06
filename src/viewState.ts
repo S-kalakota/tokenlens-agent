@@ -1,5 +1,10 @@
 import type { PromptEstimate } from './simpleEstimator';
 
 export type EstimateViewState =
-  | { kind: 'idle' }
-  | { kind: 'blocked'; estimate: PromptEstimate };
+  | { kind: 'disabled' }
+  | { kind: 'permission-missing' }
+  | { kind: 'paused' }
+  | { kind: 'waiting-for-chat' }
+  | { kind: 'draft-empty' }
+  | { kind: 'estimate'; estimate: PromptEstimate }
+  | { kind: 'unavailable'; reason?: string };

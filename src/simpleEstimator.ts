@@ -16,10 +16,21 @@ const CHARACTERS_PER_TOKEN = 4;
  * A deliberately simple local estimate. It is not model pricing: every extra
  * character increases the unrounded estimate by a fixed amount.
  */
-export function estimatePromptByLength(prompt: string): PromptEstimate {
-  const characterCount = Array.from(prompt).length;
+export function estimatePromptByCharacterCount(
+  characterCount: number,
+): PromptEstimate {
+  if (
+    !Number.isSafeInteger(characterCount) ||
+    characterCount < 0 ||
+    characterCount > MAX_PROMPT_LENGTH
+  ) {
+    throw new RangeError(
+      `characterCount must be an integer between 0 and ${MAX_PROMPT_LENGTH}.`,
+    );
+  }
+
   const estimatedTokens = Math.max(
-    1,
+    characterCount === 0 ? 0 : 1,
     Math.ceil(characterCount / CHARACTERS_PER_TOKEN),
   );
   const estimatedCostUsd =

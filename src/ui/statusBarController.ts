@@ -1,9 +1,6 @@
 import * as vscode from 'vscode';
 import type { EstimateViewState } from '../viewState';
-import {
-  buildStatusBarPresentation,
-  type PresentationContext,
-} from './presentation';
+import { buildStatusBarPresentation } from './presentation';
 
 export class StatusBarController implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
@@ -18,8 +15,8 @@ export class StatusBarController implements vscode.Disposable {
     this.item.show();
   }
 
-  public render(state: EstimateViewState, context: PresentationContext): void {
-    const presentation = buildStatusBarPresentation(state, context);
+  public render(state: EstimateViewState): void {
+    const presentation = buildStatusBarPresentation(state);
     this.item.text = presentation.text;
     this.item.accessibilityInformation = {
       label: presentation.accessibilityLabel,
