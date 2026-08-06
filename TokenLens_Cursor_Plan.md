@@ -1,6 +1,10 @@
 # TokenLens Cursor Plan
 
-## Current product goal
+> Historical plan: phases 1–4 were completed by version 0.3.1. The blocking
+> two-Enter design in this file was replaced by the implemented live status-chip
+> architecture in `TokenLens_Live_Status_Chip_Plan.md` for version 0.4.0.
+
+## Historical version 0.3.1 product goal
 
 Build one local estimate gate for Cursor side chat:
 
@@ -39,9 +43,9 @@ rounded up. This approximation is descriptive only and is not used for billing.
 Longer prompts must produce a higher unrounded estimate. TokenLens does not try
 to match a particular model, provider, subscription, or API price.
 
-## Removed scope
+## Historical version 0.3.1 removed scope
 
-The current version does not support:
+Version 0.3.1 did not support:
 
 - Subscription and API modes.
 - Configurable estimator endpoints.

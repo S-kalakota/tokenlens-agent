@@ -1,8 +1,8 @@
 {
   "name": "tokenlens-cursor",
   "displayName": "TokenLens for Cursor",
-  "description": "Estimate on first Enter and send an unchanged Cursor prompt on the second Enter.",
-  "version": "0.3.1",
+  "description": "Show a local live cost estimate while typing in Cursor's native side chat.",
+  "version": "0.4.0",
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
   "private": true,
@@ -12,7 +12,7 @@
   },
   "files": [
     "dist/**",
-    ".cursor/hooks/tokenlens-before-submit.cjs",
+    "native/bin/darwin-arm64/tokenlens-ax-observer",
     "README.md"
   ],
   "engines": {
@@ -34,9 +34,10 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:tokenlens.showActions",
-    "onCommand:tokenlens.enableEstimateGate",
-    "onCommand:tokenlens.disableEstimateGate",
-    "onCommand:tokenlens.clearEstimate"
+    "onCommand:tokenlens.enableLiveEstimate",
+    "onCommand:tokenlens.disableLiveEstimate",
+    "onCommand:tokenlens.requestAccessibilityPermission",
+    "onCommand:tokenlens.diagnoseLiveDraftDetection"
   ],
   "contributes": {
     "commands": [
@@ -46,34 +47,58 @@
         "category": "TokenLens"
       },
       {
-        "command": "tokenlens.enableEstimateGate",
-        "title": "Enable Enter-to-Estimate Gate",
+        "command": "tokenlens.enableLiveEstimate",
+        "title": "Enable Live Estimate",
         "category": "TokenLens"
       },
       {
-        "command": "tokenlens.disableEstimateGate",
-        "title": "Disable Enter-to-Estimate Gate",
+        "command": "tokenlens.disableLiveEstimate",
+        "title": "Disable Live Estimate",
         "category": "TokenLens"
       },
       {
-        "command": "tokenlens.clearEstimate",
-        "title": "Clear Last Estimate",
+        "command": "tokenlens.requestAccessibilityPermission",
+        "title": "Request Accessibility Permission",
+        "category": "TokenLens"
+      },
+      {
+        "command": "tokenlens.diagnoseLiveDraftDetection",
+        "title": "Diagnose Live Draft Detection",
         "category": "TokenLens"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "TokenLens",
+      "properties": {
+        "tokenlens.liveEstimate.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "ignoreSync": true,
+          "description": "App-wide live-estimate switch shared by all Cursor windows. Prefer the TokenLens enable/disable commands so the Accessibility privacy explanation is shown."
+        }
+      }
+    }
   },
   "scripts": {
-    "build": "node esbuild.mjs",
+    "build": "npm run build:native && npm run build:ts",
+    "build:native": "node scripts/build-native.mjs",
+    "build:ts": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "npm run test:native && npm run test:ts",
+    "test:native": "native/bin/darwin-arm64/tokenlens-ax-observer --self-test && node scripts/test-native.mjs",
+    "test:ts": "vitest run",
     "test:watch": "vitest",
-    "validate": "npm run typecheck && npm run build && npm test",
-    "package:vsix": "npm run validate && npx --yes @vscode/vsce package --out tokenlens-cursor.vsix"
+    "verify:native": "node scripts/verify-native.mjs",
+    "validate": "npm run typecheck && npm run build && npm test && npm run verify:native",
+    "vscode:prepublish": "npm run build",
+    "package:vsix": "npm run validate && vsce package --no-dependencies --target darwin-arm64 --out tokenlens-cursor-darwin-arm64.vsix && node scripts/verify-vsix.mjs tokenlens-cursor-darwin-arm64.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
     "@types/vscode": "1.100.0",
+    "@vscode/vsce": "3.9.2",
     "esbuild": "^0.28.1",
     "jsonc-parser": "^3.3.1",
     "typescript": "^5.9.3",
