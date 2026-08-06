@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { estimatePromptByLength } from '../src/simpleEstimator';
+import {
+  estimatePromptByCharacterCount,
+  MAX_PROMPT_LENGTH,
+} from '../src/simpleEstimator';
 
-describe('estimatePromptByLength', () => {
-  it('always gives a longer prompt a higher unrounded estimate', () => {
-    const short = estimatePromptByLength('a'.repeat(100));
-    const medium = estimatePromptByLength('a'.repeat(1_000));
-    const long = estimatePromptByLength('a'.repeat(10_000));
+describe('estimatePromptByCharacterCount', () => {
+  it('always gives a longer draft a higher unrounded estimate', () => {
+    const short = estimatePromptByCharacterCount(100);
+    const medium = estimatePromptByCharacterCount(1_000);
+    const long = estimatePromptByCharacterCount(10_000);
 
     expect(short.estimatedCostUsd).toBeCloseTo(0.002, 8);
     expect(medium.estimatedCostUsd).toBeCloseTo(0.011, 8);
@@ -15,15 +18,27 @@ describe('estimatePromptByLength', () => {
   });
 
   it('returns the one supported dollar display format', () => {
-    expect(estimatePromptByLength('a'.repeat(100))).toMatchObject({
+    expect(estimatePromptByCharacterCount(100)).toEqual({
       characterCount: 100,
       estimatedTokens: 25,
+      estimatedCostUsd: 0.002,
       formattedCost: '$0.00200',
       chipText: 'Est. $0.00200',
     });
   });
 
-  it('counts Unicode characters rather than UTF-16 code units', () => {
-    expect(estimatePromptByLength('A🙂B').characterCount).toBe(3);
+  it('accepts an empty count but reports no approximate tokens', () => {
+    expect(estimatePromptByCharacterCount(0)).toMatchObject({
+      characterCount: 0,
+      estimatedTokens: 0,
+      formattedCost: '$0.00100',
+    });
   });
+
+  it.each([-1, 1.5, Number.NaN, MAX_PROMPT_LENGTH + 1])(
+    'rejects invalid character count %s',
+    (value) => {
+      expect(() => estimatePromptByCharacterCount(value)).toThrow(RangeError);
+    },
+  );
 });

@@ -11,6 +11,9 @@ describe('production extension bundle', () => {
   it('loads without unresolved package-relative imports', () => {
     const bundle = readFileSync(bundlePath, 'utf8');
     expect(bundle).not.toMatch(/require\(["']\.\/impl\//);
+    expect(bundle).not.toContain('node:http');
+    expect(bundle).not.toContain('SubmittedPromptBridge');
+    expect(bundle).not.toContain('PromptConfirmationGate');
 
     const smokeTest = `
       const Module = require('node:module');

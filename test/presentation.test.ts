@@ -1,57 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import { estimatePromptByLength } from '../src/simpleEstimator';
+import { estimatePromptByCharacterCount } from '../src/simpleEstimator';
 import { buildStatusBarPresentation } from '../src/ui/presentation';
+import type { EstimateViewState } from '../src/viewState';
 
 describe('buildStatusBarPresentation', () => {
-  it('shows that prompts run normally while the gate is off', () => {
-    expect(
-      buildStatusBarPresentation({ kind: 'idle' }, { gateEnabled: false }),
-    ).toEqual({
-      text: '$(circle-slash) Estimate gate off',
-      accessibilityLabel: 'TokenLens estimate gate disabled. Open actions.',
-      tooltipParagraphs: [
-        'TokenLens estimate gate is disabled.',
-        'Cursor prompts run normally. Click the chip to enable Enter-to-estimate behavior.',
-      ],
-    });
+  it.each<[EstimateViewState, string]>([
+    [{ kind: 'disabled' }, '$(circle-slash) Live estimate off'],
+    [{ kind: 'permission-missing' }, '$(lock) Grant Accessibility'],
+    [{ kind: 'paused' }, '$(debug-pause) Live estimate paused'],
+    [
+      { kind: 'waiting-for-chat' },
+      '$(comment-discussion) Waiting for Cursor chat',
+    ],
+    [{ kind: 'draft-empty' }, '$(edit) Start typing for estimate'],
+    [{ kind: 'unavailable' }, '$(warning) Live estimate unavailable'],
+  ])('presents $state.kind as one status-chip state', (state, text) => {
+    const presentation = buildStatusBarPresentation(state);
+    expect(presentation.text).toBe(text);
+    expect(presentation.accessibilityLabel).toMatch(/TokenLens/);
+    expect(presentation.tooltipParagraphs.length).toBeGreaterThan(0);
   });
 
-  it('explains the Enter-to-estimate behavior while enabled', () => {
-    expect(
-      buildStatusBarPresentation({ kind: 'idle' }, { gateEnabled: true }),
-    ).toEqual({
-      text: '$(shield) Enter → estimate',
-      accessibilityLabel:
-        'TokenLens estimate gate enabled. First Enter estimates; second unchanged Enter sends. Open actions.',
-      tooltipParagraphs: [
-        'TokenLens estimate gate is enabled.',
-        'First Enter in Cursor side chat pauses the prompt and shows its length-based estimate.',
-        'Second Enter sends it if it is unchanged. Editing it requires a new estimate first.',
-      ],
+  it('shows the live dollar estimate and normal one-Enter workflow', () => {
+    const presentation = buildStatusBarPresentation({
+      kind: 'estimate',
+      estimate: estimatePromptByCharacterCount(1_000),
     });
-  });
-
-  it('shows the single dollar estimate for a stopped prompt', () => {
-    const estimate = estimatePromptByLength('a'.repeat(1_000));
-
-    expect(
-      buildStatusBarPresentation(
-        { kind: 'blocked', estimate },
-        { gateEnabled: true },
-      ),
-    ).toEqual({
-      text: '$(stop-circle) Est. $0.01100',
-      accessibilityLabel:
-        'TokenLens estimated and paused the last prompt. Estimated cost $0.01100. Press Enter again unchanged to send. Open actions.',
+    expect(presentation).toEqual({
+      text: 'Est. $0.01100',
+      accessibilityLabel: 'TokenLens estimated cost $0.01100. Open actions.',
       tooltipParagraphs: [
-        'TokenLens · Prompt estimated and paused',
+        'TokenLens · Live prompt estimate',
         'Estimated cost: $0.01100',
         'Prompt length: 1,000 characters',
         'Approximate input size: 250 tokens',
-        'This is a simple local estimate based only on prompt length.',
-        'The Agent did not run. Press Enter again without editing to send the prompt.',
-        'If you edit it, the next Enter estimates again and one more Enter sends it.',
+        'This is a simple local estimate based only on character count, not a provider quote.',
+        'Press Enter once to submit normally. TokenLens does not intercept Enter.',
       ],
     });
+    expect(JSON.stringify(presentation)).not.toMatch(/second Enter|paused the prompt/i);
   });
 });
