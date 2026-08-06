@@ -54,9 +54,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         workspaceRoots: roots,
         sourceScriptPath: hookScriptSourcePath,
       });
-      // Cursor debounces hooks.json file-watcher reloads for one second. Do not
-      // report the gate as ready until that reload has had time to complete.
-      await delay(HOOK_RELOAD_GRACE_MS);
     }
 
     if (
@@ -64,6 +61,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       nextRootsKey === promptBridgeRootsKey &&
       promptBridge !== undefined
     ) {
+      await waitForHookReload(nextRootsKey);
       return;
     }
 
@@ -93,6 +91,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     promptBridge = nextBridge;
     promptBridgeRootsKey = nextRootsKey;
     activePromptBridge = nextBridge;
+    await waitForHookReload(nextRootsKey);
   };
 
   const queuePromptBridgeSync = async (): Promise<boolean> => {
@@ -261,6 +260,16 @@ function fileWorkspaceRoots(): string[] {
 
 async function delay(milliseconds: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForHookReload(rootsKey: string): Promise<void> {
+  if (rootsKey === '') {
+    return;
+  }
+
+  // Cursor debounces hooks.json file-watcher reloads for one second. The bridge
+  // is already listening while we wait, and readiness is reported afterward.
+  await delay(HOOK_RELOAD_GRACE_MS);
 }
 
 interface ActionItem extends vscode.QuickPickItem {
