@@ -22,6 +22,7 @@ This project includes:
 - A compact estimate chip.
 - A hover card with additional information.
 - Commands for providing a prompt to TokenLens.
+- An opt-in Cursor hook that captures a side-chat prompt after the user presses Send.
 - Settings for selecting the Claude model and access type.
 - A client that sends estimation requests to a configurable endpoint.
 - UI states for loading, success, warning, unavailable, and error responses.
@@ -43,7 +44,7 @@ This project does **not** include:
 ## Target User Experience
 
 1. The user writes a prompt for Cursor Agent or Composer.
-2. The user explicitly provides the prompt to TokenLens through a supported capture method.
+2. The user explicitly provides the prompt to TokenLens through a capture command, or enables submitted-prompt estimates and presses Send in Cursor side chat.
 3. TokenLens sends the prompt and configured metadata to the estimator endpoint.
 4. The endpoint returns a display-ready estimate.
 5. TokenLens displays the estimate in a small chip.
@@ -73,7 +74,7 @@ The estimate content in the hover (numbers, cost or usage language, and disclaim
 
 ## Important Cursor Constraint
 
-Cursor supports standard VS Code extension surfaces such as status-bar items, commands, settings, Webviews, Quick Pick, and MCP integrations. Cursor currently does not expose a supported public API that allows a third-party extension to:
+Cursor supports standard VS Code extension surfaces such as status-bar items, commands, settings, Webviews, Quick Pick, and MCP integrations. Cursor also supports a `beforeSubmitPrompt` project hook, which runs after the user presses Send and includes the submitted prompt. Cursor still does not expose a supported public API that allows a third-party extension to:
 
 - Read the live draft inside Cursor Agent or Composer.
 - Add a custom component directly inside the Composer input box.
@@ -81,11 +82,11 @@ Cursor supports standard VS Code extension surfaces such as status-bar items, co
 - Inspect Cursor's complete hidden model request.
 - Retrieve Cursor's exact internal token usage or billing calculation before submission.
 
-Therefore, the first supported version cannot place the chip directly beside the Composer submit button as shown in the concept mockup. The closest durable implementation is a compact right-aligned status-bar chip with a hover tooltip.
+Therefore, TokenLens can recalculate automatically at submission time, but not continuously while the user types. It also cannot place the chip directly beside the Composer submit button as shown in the concept mockup. The closest durable display is a compact right-aligned status-bar chip with a hover tooltip.
 
 One consequence of the missing model-request visibility: TokenLens cannot confirm which model Cursor is actually using for a given prompt. The `tokenlens.model` setting described in "Claude Sonnet 4 Model Focus" is a user-declared value, not a detected one, and the application must treat it that way rather than implying it has been verified.
 
-The extension can receive prompts through copied text, selected text, or an optional TokenLens input. Unsupported DOM injection should not be used because Cursor interface changes could break it without warning.
+The extension can receive prompts through copied text, selected text, an optional TokenLens input, or an opt-in `beforeSubmitPrompt` hook. Unsupported DOM injection should not be used because Cursor interface changes could break it without warning.
 
 ## Recommended Cursor MVP
 
@@ -128,8 +129,9 @@ Provide these supported capture methods:
 2. **Selected-text command:** `TokenLens: Estimate Selected Text`
 3. **Keyboard shortcut:** invoke one of the estimate commands quickly.
 4. **Optional Quick Input:** type or paste a prompt into a temporary TokenLens input.
+5. **Opt-in submitted prompt:** after the user enables automatic estimates, use Cursor's project hook to recalculate when the user presses Send in side chat.
 
-The clipboard should only be read after an explicit user action. Prompt text should remain in memory only long enough to send the request and render the response unless the user opts into history.
+The clipboard should only be read after an explicit user action. Automatic submitted-prompt capture must require one-time, informed opt-in and remain easy to disable. Prompt text should remain in memory only long enough to send the request and render the response unless the user opts into history.
 
 ## Claude Sonnet 4 Model Focus
 
@@ -411,6 +413,18 @@ Exit condition: a user can submit prompt text to the endpoint through one explic
 
 Exit condition: users can clearly distinguish subscription impact from metered API cost.
 
+### Post-Phase 4 Enhancement: Automatic Submitted-Prompt Estimates
+
+- Add a project-level Cursor `beforeSubmitPrompt` hook.
+- Require explicit opt-in before starting the local bridge.
+- Forward only the submitted prompt over an authenticated loopback connection.
+- Never persist prompt text in the bridge registration file or logs.
+- Keep per-request endpoint confirmation when endpoint mode is selected.
+- Fail open so an unavailable estimate never blocks the user's Cursor prompt.
+- Document that recalculation occurs after Send, not on each draft keystroke.
+
+Exit condition: an opted-in user can submit a normal side-chat prompt and see the status-bar estimate refresh automatically.
+
 ### Phase 5: UI Polish
 
 - Match Cursor's active light or dark theme.
@@ -441,6 +455,7 @@ Exit condition: a new user can install the extension, configure an endpoint, and
 - Do not request Cursor credentials.
 - Do not inspect unrelated project files.
 - Require an explicit action before reading the clipboard.
+- Require explicit opt-in before receiving submitted side-chat prompts.
 - Allow users to disable prompt history completely.
 - Use secure secret storage if endpoint authentication is added later.
 - Redact prompt content from error reporting.
@@ -508,7 +523,7 @@ The Cursor application should continue treating the estimator as an external bla
 
 ## Future Cursor Composer Integration
 
-If Cursor releases a public Composer extension API, TokenLens can later:
+If Cursor releases a public live-draft or Composer contribution API, TokenLens can later:
 
 1. Subscribe to Composer draft changes.
 2. Send debounced requests to the estimator endpoint.
@@ -518,6 +533,7 @@ If Cursor releases a public Composer extension API, TokenLens can later:
 
 ## Relevant References
 
+- [Cursor Hooks documentation](https://cursor.com/docs/hooks)
 - [Cursor community discussion about programmatically interacting with Cursor Chat](https://forum.cursor.com/t/develop-an-extension-to-send-prompt-to-cursor-chat/81342)
 - [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
 - [VS Code Status Bar UX guidance](https://code.visualstudio.com/api/ux-guidelines/status-bar)

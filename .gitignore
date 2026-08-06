@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.tokenlens/
 *.vsix
 .DS_Store
 *.log

@@ -5,10 +5,12 @@ configurable estimator and renders its display-ready usage or cost estimate in
 one right-aligned status-bar chip. This repository implements **Phases 1–4** of
 [TokenLens_Cursor_Plan.md](./TokenLens_Cursor_Plan.md): the extension shell,
 validated endpoint client, explicit prompt capture, and subscription/API modes.
+It also includes an opt-in Cursor hook that recalculates automatically after a
+side-chat prompt is submitted.
 
 The default estimator is an in-process mock with fixed fixtures. TokenLens does
-not count tokens, calculate prices, inspect Cursor Composer, or detect the model
-currently selected in Cursor.
+not count tokens, calculate prices, read a live side-chat draft, or detect the
+model currently selected in Cursor.
 
 ## Run it locally in Cursor
 
@@ -41,20 +43,41 @@ For a faster edit loop, run `npm run watch` in the original window, then run
 If the chip is missing, confirm that you are looking in the Extension
 Development Host and that **View → Appearance → Status Bar** is enabled.
 
+### Test automatic side-chat estimates
+
+1. In the **Extension Development Host**, open **View → Command Palette…**.
+2. Run **TokenLens: Enable Automatic Side-Chat Estimates** and choose
+   **Enable automatic estimates** in the explanation dialog.
+3. Open Cursor side chat in that same window, type a prompt, and press **Send**.
+4. Watch the TokenLens status-bar chip change to **Estimating…** and then show
+   the mock estimate. The default mock remains entirely local.
+
+Cursor calls the hook immediately after **Send**. It does not expose draft
+keystrokes to extensions, so the chip does not change continuously while the
+prompt is still being typed. This repository already contains the required
+[project hook](./.cursor/hooks.json); Cursor watches that file, but reloading the
+Extension Development Host once can help if it was already open when the hook
+was added.
+
 ## Capture a prompt
 
-TokenLens captures text only when you invoke an explicit command:
+TokenLens provides three manual capture workflows plus the opt-in submitted
+side-chat workflow:
 
 | Workflow | Command | macOS default | Windows/Linux default |
 | --- | --- | --- | --- |
 | Clipboard | **TokenLens: Estimate Clipboard Prompt** | `Cmd+Alt+E` | `Ctrl+Alt+E` |
 | Editor selection | **TokenLens: Estimate Selected Text** | `Cmd+Alt+Shift+E` | `Ctrl+Alt+Shift+E` |
 | Temporary input | **TokenLens: Estimate Prompt with Quick Input** | `Cmd+Ctrl+I` | `Ctrl+Alt+I` |
+| Submitted side chat | **TokenLens: Enable Automatic Side-Chat Estimates** | After pressing Send | After pressing Send |
 
 - **Clipboard** reads the clipboard only after that command is invoked.
 - **Selected Text** uses the current non-empty selection in the active editor.
 - **Quick Input** lets you type or paste into a temporary input at the top of
   the window. Canceling submits nothing.
+- **Submitted side chat** uses Cursor's supported `beforeSubmitPrompt` hook
+  only after one-time opt-in for that workspace. Disable it at any time with
+  **TokenLens: Disable Automatic Side-Chat Estimates**.
 
 Open **Preferences: Open Keyboard Shortcuts**, search for `TokenLens`, and edit
 or remove any default shortcut. The commands are also available from
@@ -70,7 +93,7 @@ When `tokenlens.estimatorMode` is `endpoint`, every captured-prompt request
 opens a modal confirmation before transmission. The confirmation identifies the
 configured endpoint origin; choose **Send prompt** to continue or cancel to
 transmit nothing. This confirmation is shown for every capture, not just the
-first one.
+first one, including automatically captured submitted prompts.
 
 When the mode is `mock`, capture stays inside the extension process and no
 network confirmation is needed. In either mode, prompt text is held only in
@@ -78,13 +101,18 @@ memory for the active request and the transient reference is cleared after the
 request completes. TokenLens does not persist prompt history, write prompt text
 to logs, or send it to analytics.
 
-TokenLens cannot automatically read a Cursor Agent/Composer draft. It does not
-inspect unrelated files or send hidden Cursor context; only the text explicitly
-provided through one of the workflows above is used.
+For automatic estimates, the project hook forwards only the submitted prompt to
+the extension over an authenticated `127.0.0.1` connection. The temporary
+`.tokenlens/bridge.json` file contains only an ephemeral port and random secret,
+never prompt text, and is removed when the bridge stops. Attachments, referenced
+files, hidden Cursor context, chat history, and live draft keystrokes are not
+forwarded. If TokenLens is disabled or unavailable, the hook fails open and the
+Cursor prompt continues normally.
 
 The estimator mode, endpoint, model, and access mode are machine-scoped
 settings, so an untrusted workspace cannot silently replace the destination or
-request metadata for captured prompt text.
+request metadata for captured prompt text. Automatic capture consent is stored
+separately in Cursor's private workspace state rather than in the repository.
 
 ## Subscription and API modes
 
@@ -159,10 +187,12 @@ npm run watch       # Rebuild when source changes
 
 ```text
 Cursor extension
-├── explicit prompt capture
+├── prompt capture
 │   ├── clipboard command
 │   ├── active-editor selection
-│   └── temporary Quick Input
+│   ├── temporary Quick Input
+│   └── opt-in beforeSubmitPrompt project hook
+│       └── authenticated loopback bridge (no prompt persistence)
 ├── per-request endpoint privacy confirmation
 ├── status-bar controller + safe Markdown tooltip
 ├── in-memory estimate session (cancel + latest request wins)

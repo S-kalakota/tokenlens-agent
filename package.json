@@ -1,7 +1,7 @@
 {
   "name": "tokenlens-cursor",
   "displayName": "TokenLens for Cursor",
-  "description": "Explicitly capture prompts and display AI usage or cost estimates from a configurable estimator.",
+  "description": "Estimate AI usage or cost for explicit prompts and submitted Cursor side-chat prompts.",
   "version": "0.1.0",
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
@@ -30,6 +30,8 @@
     "onCommand:tokenlens.estimateClipboardPrompt",
     "onCommand:tokenlens.estimateSelectedText",
     "onCommand:tokenlens.estimateQuickInput",
+    "onCommand:tokenlens.enableAutomaticEstimates",
+    "onCommand:tokenlens.disableAutomaticEstimates",
     "onCommand:tokenlens.openSettings"
   ],
   "contributes": {
@@ -57,6 +59,16 @@
       {
         "command": "tokenlens.estimateQuickInput",
         "title": "Estimate Prompt with Quick Input",
+        "category": "TokenLens"
+      },
+      {
+        "command": "tokenlens.enableAutomaticEstimates",
+        "title": "Enable Automatic Side-Chat Estimates",
+        "category": "TokenLens"
+      },
+      {
+        "command": "tokenlens.disableAutomaticEstimates",
+        "title": "Disable Automatic Side-Chat Estimates",
         "category": "TokenLens"
       },
       {

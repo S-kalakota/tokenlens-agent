@@ -57,4 +57,17 @@ describe('extension manifest', () => {
       expect(properties[setting]?.scope).toBe('machine');
     }
   });
+
+  it('contributes an opt-in automatic side-chat workflow', () => {
+    const commands = manifest.contributes.commands.map(({ command }) => command);
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        'tokenlens.enableAutomaticEstimates',
+        'tokenlens.disableAutomaticEstimates',
+      ]),
+    );
+    expect(manifest.activationEvents).toContain(
+      'onCommand:tokenlens.enableAutomaticEstimates',
+    );
+  });
 });

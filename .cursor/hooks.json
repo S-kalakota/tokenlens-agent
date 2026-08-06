@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .cursor/hooks/tokenlens-before-submit.cjs",
+        "timeout": 2
+      }
+    ]
+  }
+}

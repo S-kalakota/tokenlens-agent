@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { SubmittedPromptBridge } from './automaticPrompt/submittedPromptBridge';
 import { createEstimatorClient } from './client/clientFactory';
 import type { MockScenario } from './client/mockFixtures';
 import { estimateFailure } from './client/types';
@@ -16,10 +17,13 @@ import { StatusBarController } from './ui/statusBarController';
 
 const PREVIEW_PROMPT = 'TokenLens local Phase 1–4 preview request.';
 const SEND_PROMPT_ACTION = 'Send prompt';
+const ENABLE_AUTOMATIC_ACTION = 'Enable automatic estimates';
+const AUTOMATIC_ESTIMATES_STATE_KEY = 'automaticSubmittedPromptEstimates';
 
 let activeSession: EstimateSession | undefined;
+let activePromptBridge: SubmittedPromptBridge | undefined;
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const statusBar = new StatusBarController();
   let viewState: EstimateViewState = { kind: 'idle' };
 
@@ -37,7 +41,10 @@ export function activate(context: vscode.ExtensionContext): void {
   activeSession = session;
   render(viewState);
 
-  const estimatePrompt = async (capturedValue: string): Promise<void> => {
+  const estimatePrompt = async (
+    capturedValue: string,
+    source: PromptSource = 'explicit',
+  ): Promise<void> => {
     let transientPrompt = capturedValue;
     let request: EstimateRequest | undefined;
 
@@ -74,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
       if (
         settings.estimatorMode === 'endpoint' &&
-        !(await confirmEndpointSend(settings))
+        !(await confirmEndpointSend(settings, source))
       ) {
         return;
       }
@@ -90,6 +97,134 @@ export function activate(context: vscode.ExtensionContext): void {
       transientPrompt = '';
       request = undefined;
     }
+  };
+
+  let promptBridge: SubmittedPromptBridge | undefined;
+  let promptBridgeRootsKey = '';
+  let bridgeTransition: Promise<void> = Promise.resolve();
+  let bridgeDisposed = false;
+
+  const automaticEstimatesEnabled = (): boolean =>
+    context.workspaceState.get<boolean>(AUTOMATIC_ESTIMATES_STATE_KEY, false);
+
+  const synchronizeAutomaticPromptBridge = async (): Promise<void> => {
+    const roots = fileWorkspaceRoots();
+    const nextRootsKey =
+      automaticEstimatesEnabled() &&
+      vscode.workspace.isTrusted &&
+      roots.length > 0
+        ? roots.join('\u0000')
+        : '';
+
+    if (
+      nextRootsKey !== '' &&
+      nextRootsKey === promptBridgeRootsKey &&
+      promptBridge !== undefined
+    ) {
+      return;
+    }
+
+    const previousBridge = promptBridge;
+    promptBridge = undefined;
+    promptBridgeRootsKey = '';
+    if (activePromptBridge === previousBridge) {
+      activePromptBridge = undefined;
+    }
+    await previousBridge?.stop();
+
+    if (bridgeDisposed || nextRootsKey === '') {
+      return;
+    }
+
+    const nextBridge = new SubmittedPromptBridge({
+      workspaceRoots: roots,
+      onPrompt: async (prompt) => {
+        await estimatePrompt(prompt, 'automatic');
+      },
+    });
+    await nextBridge.start();
+
+    if (bridgeDisposed) {
+      await nextBridge.stop();
+      return;
+    }
+
+    promptBridge = nextBridge;
+    promptBridgeRootsKey = nextRootsKey;
+    activePromptBridge = nextBridge;
+  };
+
+  const queueAutomaticPromptBridgeSync = async (): Promise<boolean> => {
+    const transition = bridgeTransition.then(synchronizeAutomaticPromptBridge);
+    bridgeTransition = transition.catch(() => {
+      // Keep later transitions usable; the caller reports this failure.
+    });
+    try {
+      await transition;
+      return true;
+    } catch {
+      await vscode.window.showWarningMessage(
+        'TokenLens could not start automatic side-chat estimates. Manual estimate commands still work.',
+      );
+      return false;
+    }
+  };
+
+  const enableAutomaticEstimates = async (): Promise<void> => {
+    const settings = readTokenLensSettings();
+    if (automaticEstimatesEnabled()) {
+      if (await queueAutomaticPromptBridgeSync()) {
+        await vscode.window.showInformationMessage(
+          'TokenLens automatic side-chat estimates are already enabled. They run after you press Send.',
+        );
+      }
+      return;
+    }
+
+    if (fileWorkspaceRoots().length === 0) {
+      await vscode.window.showWarningMessage(
+        'Open a project folder before enabling automatic side-chat estimates.',
+      );
+      return;
+    }
+
+    if (!vscode.workspace.isTrusted) {
+      await vscode.window.showWarningMessage(
+        'Trust this workspace before enabling its Cursor prompt hook.',
+      );
+      return;
+    }
+
+    const endpointDetail =
+      settings.estimatorMode === 'mock'
+        ? 'The default mock estimator stays local. No draft keystrokes, attachments, files, or chat history are captured.'
+        : `Only submitted prompt text is forwarded to TokenLens locally. TokenLens will still ask before sending each estimate to ${describeEndpointDestination(settings.endpoint)}.`;
+    const selected = await vscode.window.showInformationMessage(
+      'Enable automatic estimates for submitted Cursor side-chat prompts?',
+      {
+        modal: true,
+        detail: `After you press Send, this project's Cursor hook forwards the prompt text to TokenLens over an authenticated loopback connection. ${endpointDetail}`,
+      },
+      ENABLE_AUTOMATIC_ACTION,
+    );
+    if (selected !== ENABLE_AUTOMATIC_ACTION) {
+      return;
+    }
+
+    await context.workspaceState.update(AUTOMATIC_ESTIMATES_STATE_KEY, true);
+    if (await queueAutomaticPromptBridgeSync()) {
+      await vscode.window.showInformationMessage(
+        'TokenLens will now recalculate after you press Send in Cursor side chat.',
+      );
+    }
+  };
+
+  const disableAutomaticEstimates = async (): Promise<void> => {
+    await context.workspaceState.update(AUTOMATIC_ESTIMATES_STATE_KEY, false);
+    await queueAutomaticPromptBridgeSync();
+    await vscode.window.showInformationMessage(
+      'TokenLens automatic side-chat estimates are disabled.',
+    );
   };
 
   const previewEstimate = async () => {
@@ -257,6 +392,17 @@ export function activate(context: vscode.ExtensionContext): void {
         label: '$(edit) Type or paste a prompt',
         command: 'tokenlens.estimateQuickInput',
       },
+      automaticEstimatesEnabled()
+        ? {
+            label: '$(sync) Disable automatic side-chat estimates',
+            description: 'On — recalculates after Send',
+            command: 'tokenlens.disableAutomaticEstimates',
+          }
+        : {
+            label: '$(sync-ignored) Enable automatic side-chat estimates',
+            description: 'Runs after Send, not on draft keystrokes',
+            command: 'tokenlens.enableAutomaticEstimates',
+          },
       {
         label: '$(play) Preview with synthetic prompt',
         description: 'Uses fixed non-sensitive text',
@@ -326,6 +472,14 @@ export function activate(context: vscode.ExtensionContext): void {
       'tokenlens.estimateQuickInput',
       estimateQuickInput,
     ),
+    vscode.commands.registerCommand(
+      'tokenlens.enableAutomaticEstimates',
+      enableAutomaticEstimates,
+    ),
+    vscode.commands.registerCommand(
+      'tokenlens.disableAutomaticEstimates',
+      disableAutomaticEstimates,
+    ),
     vscode.commands.registerCommand('tokenlens.selectMockScenario', selectMockScenario),
     vscode.commands.registerCommand('tokenlens.cancelEstimate', () => session.reset()),
     vscode.commands.registerCommand('tokenlens.clearEstimate', () => session.reset()),
@@ -338,22 +492,44 @@ export function activate(context: vscode.ExtensionContext): void {
         session.reset();
       }
     }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void queueAutomaticPromptBridgeSync();
+    }),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      void queueAutomaticPromptBridgeSync();
+    }),
     {
-      dispose: () => session.dispose(),
+      dispose: () => {
+        bridgeDisposed = true;
+        session.dispose();
+        const bridge = promptBridge;
+        promptBridge = undefined;
+        void bridge?.stop();
+      },
     },
   );
+
+  await queueAutomaticPromptBridgeSync();
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
+  const bridge = activePromptBridge;
+  activePromptBridge = undefined;
+  await bridge?.stop();
   activeSession?.dispose();
   activeSession = undefined;
 }
 
-async function confirmEndpointSend(settings: TokenLensSettings): Promise<boolean> {
+async function confirmEndpointSend(
+  settings: TokenLensSettings,
+  source: PromptSource,
+): Promise<boolean> {
   const destination = describeEndpointDestination(settings.endpoint);
   const modelLabel = safeSettingLabel(settings.model);
   const selected = await vscode.window.showWarningMessage(
-    `Send this prompt to ${destination}?`,
+    source === 'automatic'
+      ? `Send the submitted side-chat prompt to ${destination}?`
+      : `Send this prompt to ${destination}?`,
     {
       modal: true,
       detail: `TokenLens will send the prompt with model “${modelLabel}” and ${accessModeLabel(settings.accessMode)} access mode. TokenLens does not store the prompt after the request completes.`,
@@ -361,6 +537,15 @@ async function confirmEndpointSend(settings: TokenLensSettings): Promise<boolean
     SEND_PROMPT_ACTION,
   );
   return selected === SEND_PROMPT_ACTION;
+}
+
+function fileWorkspaceRoots(): string[] {
+  return (
+    vscode.workspace.workspaceFolders
+      ?.filter(({ uri }) => uri.scheme === 'file')
+      .map(({ uri }) => uri.fsPath)
+      .sort() ?? []
+  );
 }
 
 function hasSelectedText(): boolean {
@@ -394,6 +579,8 @@ interface EstimatorModeItem extends vscode.QuickPickItem {
 interface AccessModeItem extends vscode.QuickPickItem {
   mode: AccessMode;
 }
+
+type PromptSource = 'explicit' | 'automatic';
 
 function mockScenarioItems(): MockScenarioItem[] {
   return [
