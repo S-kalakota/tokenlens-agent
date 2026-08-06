@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { EstimateViewState } from '../estimateSession';
+import type { EstimateViewState } from '../viewState';
 import {
   buildStatusBarPresentation,
   type PresentationContext,
@@ -37,12 +37,7 @@ export class StatusBarController implements vscode.Disposable {
     });
     this.item.tooltip = tooltip;
 
-    this.item.backgroundColor =
-      presentation.emphasis === 'warning'
-        ? new vscode.ThemeColor('statusBarItem.warningBackground')
-        : presentation.emphasis === 'error'
-          ? new vscode.ThemeColor('statusBarItem.errorBackground')
-          : undefined;
+    this.item.backgroundColor = undefined;
   }
 
   public dispose(): void {

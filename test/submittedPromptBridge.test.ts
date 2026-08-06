@@ -3,13 +3,18 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   BRIDGE_DIRECTORY_NAME,
   BRIDGE_REGISTRATION_NAME,
   SUBMITTED_PROMPT_PATH,
   SubmittedPromptBridge,
+  type SubmittedPromptDecision,
 } from '../src/automaticPrompt/submittedPromptBridge';
+import {
+  blockedPromptMessage,
+  estimatePromptByLength,
+} from '../src/simpleEstimator';
 
 interface Registration {
   version: number;
@@ -55,7 +60,10 @@ describe('SubmittedPromptBridge', () => {
   it('accepts an authenticated loopback prompt without persisting it', async () => {
     const root = await temporaryRoot();
     const received: string[] = [];
-    const bridge = await startedBridge(root, (prompt) => received.push(prompt));
+    const bridge = await startedBridge(root, (prompt) => {
+      received.push(prompt);
+      return blockedDecision(prompt);
+    });
     const { registration, raw } = await readRegistration(root);
     const prompt = 'Estimate this submitted side-chat prompt.';
 
@@ -72,8 +80,9 @@ describe('SubmittedPromptBridge', () => {
       },
     );
 
-    expect(response.status).toBe(202);
-    await vi.waitFor(() => expect(received).toEqual([prompt]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(blockedDecision(prompt));
+    expect(received).toEqual([prompt]);
     expect(await readFile(registrationPath(root), 'utf8')).not.toContain(prompt);
 
     await bridge.stop();
@@ -85,7 +94,10 @@ describe('SubmittedPromptBridge', () => {
   it('rejects a request that does not have the per-session secret', async () => {
     const root = await temporaryRoot();
     const received: string[] = [];
-    await startedBridge(root, (prompt) => received.push(prompt));
+    await startedBridge(root, (prompt) => {
+      received.push(prompt);
+      return blockedDecision(prompt);
+    });
     const { registration } = await readRegistration(root);
 
     const response = await fetch(
@@ -107,7 +119,10 @@ describe('SubmittedPromptBridge', () => {
   it('receives Cursor beforeSubmitPrompt input through the project hook', async () => {
     const root = await temporaryRoot();
     const received: string[] = [];
-    await startedBridge(root, (prompt) => received.push(prompt));
+    await startedBridge(root, (submittedPrompt) => {
+      received.push(submittedPrompt);
+      return blockedDecision(submittedPrompt);
+    });
     const prompt = 'Automatically recalculate this prompt.';
 
     const result = await runHook(root, {
@@ -120,8 +135,8 @@ describe('SubmittedPromptBridge', () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toEqual({ continue: true });
-    await vi.waitFor(() => expect(received).toEqual([prompt]));
+    expect(JSON.parse(result.stdout)).toEqual(blockedDecision(prompt));
+    expect(received).toEqual([prompt]);
   });
 
   it('fails open when the extension bridge is not running', async () => {
@@ -130,6 +145,22 @@ describe('SubmittedPromptBridge', () => {
     const result = await runHook(root, {
       hook_event_name: 'beforeSubmitPrompt',
       prompt: 'Cursor should still submit this prompt.',
+      workspace_roots: [root],
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ continue: true });
+  });
+
+  it('fails open when local estimation cannot return a decision', async () => {
+    const root = await temporaryRoot();
+    await startedBridge(root, () => {
+      throw new Error('test failure');
+    });
+
+    const result = await runHook(root, {
+      hook_event_name: 'beforeSubmitPrompt',
+      prompt: 'Cursor should not be blocked by an estimator failure.',
       workspace_roots: [root],
     });
 
@@ -146,7 +177,9 @@ async function temporaryRoot(): Promise<string> {
 
 async function startedBridge(
   root: string,
-  onPrompt: (prompt: string) => void,
+  onPrompt: (
+    prompt: string,
+  ) => SubmittedPromptDecision | Promise<SubmittedPromptDecision>,
 ): Promise<SubmittedPromptBridge> {
   const bridge = new SubmittedPromptBridge({
     workspaceRoots: [root],
@@ -155,6 +188,13 @@ async function startedBridge(
   bridges.push(bridge);
   await bridge.start();
   return bridge;
+}
+
+function blockedDecision(prompt: string): SubmittedPromptDecision {
+  return {
+    continue: false,
+    user_message: blockedPromptMessage(estimatePromptByLength(prompt)),
+  };
 }
 
 async function readRegistration(

@@ -8,7 +8,8 @@ const BRIDGE_DIRECTORY_NAME = '.tokenlens';
 const BRIDGE_REGISTRATION_NAME = 'bridge.json';
 const SUBMITTED_PROMPT_PATH = '/v1/submitted-prompt';
 const MAX_HOOK_INPUT_BYTES = 8 * 1024 * 1024;
-const BRIDGE_TIMEOUT_MS = 200;
+const MAX_BRIDGE_RESPONSE_BYTES = 16 * 1024;
+const BRIDGE_TIMEOUT_MS = 1_000;
 
 async function main() {
   const input = await readHookInput();
@@ -19,15 +20,15 @@ async function main() {
     typeof input.prompt !== 'string' ||
     input.prompt.trim().length === 0
   ) {
-    return;
+    return allowPrompt();
   }
 
   const registration = await findRegistration(input.workspace_roots);
   if (registration === undefined) {
-    return;
+    return allowPrompt();
   }
 
-  await forwardPrompt(registration, input.prompt);
+  return (await requestDecision(registration, input.prompt)) ?? allowPrompt();
 }
 
 async function readHookInput() {
@@ -71,7 +72,7 @@ async function findRegistration(workspaceRoots) {
         return value;
       }
     } catch {
-      // Automatic capture is disabled or the extension is not running here.
+      // The estimate gate is disabled or the extension is not running here.
     }
   }
 
@@ -91,15 +92,15 @@ function validRegistration(value) {
   );
 }
 
-async function forwardPrompt(registration, prompt) {
+async function requestDecision(registration, prompt) {
   const body = JSON.stringify({ prompt });
 
-  await new Promise((resolve) => {
+  return new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    const finish = (decision) => {
       if (!settled) {
         settled = true;
-        resolve();
+        resolve(decision);
       }
     };
     const request = http.request(
@@ -115,24 +116,63 @@ async function forwardPrompt(registration, prompt) {
         },
       },
       (response) => {
-        response.resume();
-        finish();
+        if (response.statusCode !== 200) {
+          response.resume();
+          finish(undefined);
+          return;
+        }
+
+        const chunks = [];
+        let size = 0;
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          size += Buffer.byteLength(chunk);
+          if (size > MAX_BRIDGE_RESPONSE_BYTES) {
+            response.destroy();
+            finish(undefined);
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on('end', () => {
+          try {
+            const decision = JSON.parse(chunks.join(''));
+            finish(validDecision(decision) ? decision : undefined);
+          } catch {
+            finish(undefined);
+          }
+        });
+        response.on('error', () => finish(undefined));
       },
     );
 
     request.setTimeout(BRIDGE_TIMEOUT_MS, () => {
       request.destroy();
-      finish();
+      finish(undefined);
     });
-    request.on('error', finish);
+    request.on('error', () => finish(undefined));
     request.end(body);
   });
 }
 
+function validDecision(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof value.continue === 'boolean' &&
+    (value.user_message === undefined ||
+      (typeof value.user_message === 'string' &&
+        value.user_message.trim().length > 0 &&
+        value.user_message.length <= 4_000))
+  );
+}
+
+function allowPrompt() {
+  return { continue: true };
+}
+
 main()
-  .catch(() => {
-    // A usage estimate must never block or alter the user's Cursor prompt.
-  })
-  .finally(() => {
-    process.stdout.write('{"continue":true}\n');
+  .catch(() => allowPrompt())
+  .then((decision) => {
+    process.stdout.write(`${JSON.stringify(decision)}\n`);
   });

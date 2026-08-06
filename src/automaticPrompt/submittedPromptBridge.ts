@@ -2,14 +2,14 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
-import { MAX_CAPTURED_PROMPT_LENGTH } from '../promptCapture';
+import { MAX_PROMPT_LENGTH } from '../simpleEstimator';
 
 export const BRIDGE_DIRECTORY_NAME = '.tokenlens';
 export const BRIDGE_REGISTRATION_NAME = 'bridge.json';
 export const SUBMITTED_PROMPT_PATH = '/v1/submitted-prompt';
 
 const BRIDGE_VERSION = 1;
-const MAX_REQUEST_BODY_BYTES = MAX_CAPTURED_PROMPT_LENGTH * 6 + 1_024;
+const MAX_REQUEST_BODY_BYTES = MAX_PROMPT_LENGTH * 6 + 1_024;
 
 interface BridgeRegistration {
   version: typeof BRIDGE_VERSION;
@@ -17,9 +17,16 @@ interface BridgeRegistration {
   token: string;
 }
 
+export interface SubmittedPromptDecision {
+  continue: boolean;
+  user_message?: string;
+}
+
 export interface SubmittedPromptBridgeOptions {
   workspaceRoots: readonly string[];
-  onPrompt: (prompt: string) => void | Promise<void>;
+  onPrompt: (
+    prompt: string,
+  ) => SubmittedPromptDecision | Promise<SubmittedPromptDecision>;
 }
 
 /**
@@ -120,13 +127,20 @@ export class SubmittedPromptBridge {
       return;
     }
 
-    respond(response, 202);
-    void Promise.resolve()
-      .then(async () => this.options.onPrompt(prompt))
-      .catch(() => {
-        // Estimation errors are rendered by the extension session. Never leak
-        // prompt content or block Cursor submission from this transport layer.
-      });
+    let decision: SubmittedPromptDecision;
+    try {
+      decision = await this.options.onPrompt(prompt);
+    } catch {
+      respond(response, 500);
+      return;
+    }
+
+    if (!validDecision(decision)) {
+      respond(response, 500);
+      return;
+    }
+
+    respondJson(response, 200, decision);
   }
 
   private async removeRegistrations(): Promise<void> {
@@ -257,7 +271,7 @@ function parsePrompt(body: string): string | undefined {
       !('prompt' in value) ||
       typeof value.prompt !== 'string' ||
       value.prompt.trim().length === 0 ||
-      value.prompt.length > MAX_CAPTURED_PROMPT_LENGTH
+      value.prompt.length > MAX_PROMPT_LENGTH
     ) {
       return undefined;
     }
@@ -265,6 +279,20 @@ function parsePrompt(body: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function validDecision(value: unknown): value is SubmittedPromptDecision {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'continue' in value &&
+    typeof value.continue === 'boolean' &&
+    (!('user_message' in value) ||
+      value.user_message === undefined ||
+      (typeof value.user_message === 'string' &&
+        value.user_message.trim().length > 0 &&
+        value.user_message.length <= 4_000))
+  );
 }
 
 function respond(response: ServerResponse, statusCode: number): void {
@@ -279,4 +307,19 @@ function respond(response: ServerResponse, statusCode: number): void {
     'content-length': '0',
   });
   response.end();
+}
+
+function respondJson(
+  response: ServerResponse,
+  statusCode: number,
+  value: SubmittedPromptDecision,
+): void {
+  const body = JSON.stringify(value);
+  response.writeHead(statusCode, {
+    'cache-control': 'no-store',
+    connection: 'close',
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+  });
+  response.end(body);
 }

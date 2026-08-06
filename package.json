@@ -1,8 +1,8 @@
 {
   "name": "tokenlens-cursor",
   "displayName": "TokenLens for Cursor",
-  "description": "Estimate AI usage or cost for explicit prompts and submitted Cursor side-chat prompts.",
-  "version": "0.1.0",
+  "description": "Stop submitted Cursor prompts and show one local length-based dollar estimate.",
+  "version": "0.2.0",
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
   "private": true,
@@ -15,9 +15,8 @@
   "keywords": [
     "cursor",
     "cost",
-    "usage",
-    "anthropic",
-    "claude"
+    "prompt",
+    "estimate"
   ],
   "extensionKind": [
     "ui"
@@ -26,13 +25,9 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:tokenlens.showActions",
-    "onCommand:tokenlens.previewEstimate",
-    "onCommand:tokenlens.estimateClipboardPrompt",
-    "onCommand:tokenlens.estimateSelectedText",
-    "onCommand:tokenlens.estimateQuickInput",
-    "onCommand:tokenlens.enableAutomaticEstimates",
-    "onCommand:tokenlens.disableAutomaticEstimates",
-    "onCommand:tokenlens.openSettings"
+    "onCommand:tokenlens.enableEstimateGate",
+    "onCommand:tokenlens.disableEstimateGate",
+    "onCommand:tokenlens.clearEstimate"
   ],
   "contributes": {
     "commands": [
@@ -42,169 +37,21 @@
         "category": "TokenLens"
       },
       {
-        "command": "tokenlens.previewEstimate",
-        "title": "Preview Estimate",
+        "command": "tokenlens.enableEstimateGate",
+        "title": "Enable Enter-to-Estimate Gate",
         "category": "TokenLens"
       },
       {
-        "command": "tokenlens.estimateClipboardPrompt",
-        "title": "Estimate Clipboard Prompt",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.estimateSelectedText",
-        "title": "Estimate Selected Text",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.estimateQuickInput",
-        "title": "Estimate Prompt with Quick Input",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.enableAutomaticEstimates",
-        "title": "Enable Automatic Side-Chat Estimates",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.disableAutomaticEstimates",
-        "title": "Disable Automatic Side-Chat Estimates",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.selectMockScenario",
-        "title": "Select Mock Scenario",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.cancelEstimate",
-        "title": "Cancel Estimate",
+        "command": "tokenlens.disableEstimateGate",
+        "title": "Disable Enter-to-Estimate Gate",
         "category": "TokenLens"
       },
       {
         "command": "tokenlens.clearEstimate",
-        "title": "Clear Estimate",
-        "category": "TokenLens"
-      },
-      {
-        "command": "tokenlens.openSettings",
-        "title": "Open Settings",
+        "title": "Clear Last Estimate",
         "category": "TokenLens"
       }
-    ],
-    "keybindings": [
-      {
-        "command": "tokenlens.estimateClipboardPrompt",
-        "key": "ctrl+alt+e",
-        "mac": "cmd+alt+e",
-        "when": "!inQuickOpen"
-      },
-      {
-        "command": "tokenlens.estimateSelectedText",
-        "key": "ctrl+alt+shift+e",
-        "mac": "cmd+alt+shift+e",
-        "when": "editorTextFocus && editorHasSelection"
-      },
-      {
-        "command": "tokenlens.estimateQuickInput",
-        "key": "ctrl+alt+i",
-        "mac": "cmd+ctrl+i",
-        "when": "!inQuickOpen"
-      }
-    ],
-    "configuration": {
-      "title": "TokenLens",
-      "properties": {
-        "tokenlens.estimatorMode": {
-          "type": "string",
-          "enum": [
-            "mock",
-            "endpoint"
-          ],
-          "enumDescriptions": [
-            "Use deterministic in-process fixtures for local development.",
-            "Send explicit estimate requests to the configured endpoint after confirmation."
-          ],
-          "default": "mock",
-          "scope": "machine",
-          "description": "Selects the estimator implementation without requiring a rebuild. This machine-scoped setting cannot be overridden by a workspace."
-        },
-        "tokenlens.endpoint": {
-          "type": "string",
-          "default": "http://localhost:8787/v1/estimates",
-          "scope": "machine",
-          "description": "Machine-scoped estimator destination. Remote endpoints require HTTPS; HTTP is allowed only for loopback development. Every prompt send requires confirmation."
-        },
-        "tokenlens.model": {
-          "type": "string",
-          "default": "claude-sonnet-4",
-          "scope": "machine",
-          "description": "User-declared model identifier sent to the estimator. TokenLens cannot detect Cursor's active model."
-        },
-        "tokenlens.accessMode": {
-          "type": "string",
-          "enum": [
-            "subscription",
-            "api"
-          ],
-          "enumDescriptions": [
-            "Request a relative subscription-usage estimate.",
-            "Request a metered API-cost estimate."
-          ],
-          "default": "subscription",
-          "scope": "machine",
-          "description": "User-declared access mode sent to the estimator."
-        },
-        "tokenlens.budgetThreshold": {
-          "type": [
-            "number",
-            "null"
-          ],
-          "default": null,
-          "minimum": 0,
-          "scope": "window",
-          "description": "Optional budget threshold sent to the estimator. TokenLens does not calculate or apply it locally."
-        },
-        "tokenlens.requestTimeoutMs": {
-          "type": "number",
-          "default": 8000,
-          "minimum": 500,
-          "maximum": 60000,
-          "scope": "window",
-          "description": "Maximum time to wait for an endpoint response, in milliseconds."
-        },
-        "tokenlens.mockScenario": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "api-ready",
-            "subscription-ready",
-            "over-budget",
-            "unavailable",
-            "malformed"
-          ],
-          "enumDescriptions": [
-            "Return a ready fixture matching the configured access mode.",
-            "Return the fixed API-mode fixture.",
-            "Return the fixed subscription-mode fixture.",
-            "Return a fixed response marked over budget.",
-            "Return a validated estimator-unavailable error.",
-            "Return an invalid payload to exercise safe parsing."
-          ],
-          "default": "auto",
-          "scope": "machine",
-          "description": "Fixture selected by the in-process mock estimator."
-        },
-        "tokenlens.mockDelayMs": {
-          "type": "number",
-          "default": 650,
-          "minimum": 0,
-          "maximum": 30000,
-          "scope": "window",
-          "description": "Artificial mock delay used to preview and test the loading state."
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",
@@ -213,9 +60,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "validate": "npm run typecheck && npm test && npm run build"
-  },
-  "dependencies": {
-    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

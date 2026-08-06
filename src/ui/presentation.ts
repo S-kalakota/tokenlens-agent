@@ -1,91 +1,51 @@
-import type { AccessMode } from '../contract';
-import type { EstimatorMode } from '../client/clientFactory';
-import type { EstimateViewState } from '../estimateSession';
+import type { EstimateViewState } from '../viewState';
 
 export interface PresentationContext {
-  model: string;
-  accessMode: AccessMode;
-  estimatorMode: EstimatorMode;
+  gateEnabled: boolean;
 }
 
 export interface StatusBarPresentation {
   text: string;
   accessibilityLabel: string;
   tooltipParagraphs: string[];
-  emphasis: 'normal' | 'warning' | 'error';
 }
-
-const MODEL_SOURCE_NOTE =
-  "Model reflects your TokenLens setting, not a detected value from Cursor's active session.";
 
 export function buildStatusBarPresentation(
   state: EstimateViewState,
   context: PresentationContext,
 ): StatusBarPresentation {
-  const configuredModel = context.model.trim() || 'Not configured';
-  const accessLabel = accessModeLabel(context.accessMode);
-  const sharedDetails = [
-    `Configured model: ${configuredModel}`,
-    `Access: ${accessLabel}`,
-    `Estimator: ${context.estimatorMode === 'mock' ? 'Local mock' : 'Configured endpoint'}`,
-    MODEL_SOURCE_NOTE,
-  ];
-
-  switch (state.kind) {
-    case 'idle':
-      return {
-        text: '$(circle-outline) No estimate',
-        accessibilityLabel: 'TokenLens, no estimate. Open actions.',
-        tooltipParagraphs: [
-          'TokenLens',
-          'No estimate is available. Click the chip to choose a prompt source.',
-          ...sharedDetails,
-        ],
-        emphasis: 'normal',
-      };
-    case 'loading':
-      return {
-        text: '$(loading~spin) Estimating…',
-        accessibilityLabel: 'TokenLens is estimating. Open actions.',
-        tooltipParagraphs: [
-          'TokenLens',
-          'Estimate status: Loading',
-          ...sharedDetails,
-        ],
-        emphasis: 'normal',
-      };
-    case 'ready': {
-      const warning = state.estimate.budget.isOverThreshold;
-      return {
-        text: `${warning ? '$(warning)' : '$(circle-filled)'} ${state.estimate.display.chipText}`,
-        accessibilityLabel: `TokenLens, ${state.estimate.display.chipText}, ${warning ? 'above the configured threshold' : 'estimate ready'}. Open actions.`,
-        tooltipParagraphs: [
-          state.estimate.display.title,
-          state.estimate.display.summary,
-          `Access: ${accessModeLabel(state.estimate.accessMode)}`,
-          `Estimate status: ${warning ? 'Above configured threshold' : 'Ready'}`,
-          state.estimate.display.disclaimer,
-          `Configured model: ${configuredModel}`,
-          MODEL_SOURCE_NOTE,
-        ],
-        emphasis: warning ? 'warning' : 'normal',
-      };
-    }
-    case 'unavailable':
-      return {
-        text: '$(error) Estimate unavailable',
-        accessibilityLabel: 'TokenLens estimate unavailable. Open actions.',
-        tooltipParagraphs: [
-          'TokenLens · Estimate unavailable',
-          state.error.message,
-          'Estimate status: Unavailable',
-          ...sharedDetails,
-        ],
-        emphasis: 'error',
-      };
+  if (state.kind === 'blocked') {
+    return {
+      text: `$(stop-circle) ${state.estimate.chipText}`,
+      accessibilityLabel: `TokenLens stopped the last prompt. Estimated cost ${state.estimate.formattedCost}. Open actions.`,
+      tooltipParagraphs: [
+        'TokenLens · Prompt stopped',
+        `Estimated cost: ${state.estimate.formattedCost}`,
+        `Prompt length: ${state.estimate.characterCount.toLocaleString('en-US')} characters`,
+        `Approximate input size: ${state.estimate.estimatedTokens.toLocaleString('en-US')} tokens`,
+        'This is a simple local estimate based only on prompt length.',
+        'The Agent did not run. Disable the estimate gate to allow prompts through.',
+      ],
+    };
   }
-}
 
-function accessModeLabel(accessMode: AccessMode): string {
-  return accessMode === 'api' ? 'Token-based API' : 'Subscription';
+  return context.gateEnabled
+    ? {
+        text: '$(shield) Enter → estimate',
+        accessibilityLabel:
+          'TokenLens estimate gate enabled. Submitted prompts will be stopped. Open actions.',
+        tooltipParagraphs: [
+          'TokenLens estimate gate is enabled.',
+          'Press Enter in Cursor side chat to stop the prompt and see its length-based estimate.',
+          'Disable the gate when you want Cursor to run prompts normally.',
+        ],
+      }
+    : {
+        text: '$(circle-slash) Estimate gate off',
+        accessibilityLabel: 'TokenLens estimate gate disabled. Open actions.',
+        tooltipParagraphs: [
+          'TokenLens estimate gate is disabled.',
+          'Cursor prompts run normally. Click the chip to enable Enter-to-estimate behavior.',
+        ],
+      };
 }
