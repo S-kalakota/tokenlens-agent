@@ -22,7 +22,39 @@ While the gate is enabled, every submitted prompt is blocked. Run **TokenLens:
 Disable Enter-to-Estimate Gate** when you want prompts to run normally, then
 submit the prompt again.
 
-## Run and test it
+## Install and use it in normal Cursor
+
+This is the recommended workflow. It installs TokenLens locally; it does not
+publish anything.
+
+1. In a terminal opened in this repository, run:
+
+   ```sh
+   npm install
+   npm run package:vsix
+   "/Applications/Cursor.app/Contents/Resources/app/bin/cursor" \
+     --install-extension tokenlens-cursor.vsix --force
+   ```
+
+2. In normal Cursor, open the project where you want estimates.
+3. Press **Cmd+Shift+P** to open the Command Palette.
+4. Run **TokenLens: Enable Enter-to-Estimate Gate** and confirm **Enable
+   estimate gate**.
+5. Wait for **TokenLens is ready** and check that the bottom status bar says
+   **Enter → estimate**.
+6. Type a prompt in Cursor side chat and press **Enter**.
+
+The Agent should not start. Cursor shows the estimate, and the status-bar chip
+changes to the estimated amount. Run **TokenLens: Disable Enter-to-Estimate
+Gate** when you want prompts to run normally.
+
+After installing a newly built VSIX while Cursor is already open, run
+**Developer: Reload Window** once from the Command Palette.
+
+## Developer-only debugging workflow
+
+Use this only while changing TokenLens source code. Normal use does not require
+Run or Debugging.
 
 1. In a terminal opened in this repository, run:
 

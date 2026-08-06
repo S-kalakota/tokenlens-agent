@@ -6,6 +6,15 @@
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/S-kalakota/Cursor_Token_Price_Estimator.git"
+  },
+  "files": [
+    "dist/**",
+    ".cursor/hooks/tokenlens-before-submit.cjs",
+    "README.md"
+  ],
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -59,15 +68,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "validate": "npm run typecheck && npm test && npm run build"
-  },
-  "dependencies": {
-    "jsonc-parser": "^3.3.1"
+    "validate": "npm run typecheck && npm test && npm run build",
+    "package:vsix": "npm run validate && npx --yes @vscode/vsce package --out tokenlens-cursor.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "1.100.0",
     "esbuild": "^0.28.1",
+    "jsonc-parser": "^3.3.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }
