@@ -7,6 +7,10 @@ const options = {
   external: ['vscode'],
   format: 'cjs',
   platform: 'node',
+  // Prefer ESM package entries so esbuild can statically include their
+  // relative imports. jsonc-parser's UMD entry uses a dynamic require alias
+  // that otherwise survives bundling and fails after VSIX installation.
+  mainFields: ['module', 'main'],
   target: 'node20',
   outfile: 'dist/extension.js',
   sourcemap: true,

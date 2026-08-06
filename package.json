@@ -2,7 +2,7 @@
   "name": "tokenlens-cursor",
   "displayName": "TokenLens for Cursor",
   "description": "Stop submitted Cursor prompts and show one local length-based dollar estimate.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "tokenlens-local",
   "license": "UNLICENSED",
   "private": true,
@@ -68,7 +68,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "validate": "npm run typecheck && npm test && npm run build",
+    "validate": "npm run typecheck && npm run build && npm test",
     "package:vsix": "npm run validate && npx --yes @vscode/vsce package --out tokenlens-cursor.vsix"
   },
   "devDependencies": {
