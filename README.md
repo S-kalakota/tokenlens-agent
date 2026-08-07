@@ -1,4 +1,16 @@
-# TokenLens for Cursor
+# TokenLens
+
+Estimate what a prompt costs before you send it.
+
+- **Cursor** — the VS Code extension at the root of this repository, documented below.
+- **Claude Code** — a plugin in [`claude-code/`](./claude-code), with its own
+  [README](./claude-code/README.md). Same idea, ported to Claude Code's
+  `UserPromptSubmit` hook, and it prices the context the turn re-sends rather
+  than the prompt alone.
+
+---
+
+## TokenLens for Cursor
 
 TokenLens is a small Cursor/VS Code extension that sends prompt text to a
 configurable estimator and renders its display-ready usage or cost estimate in

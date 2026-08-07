@@ -1,0 +1,11 @@
+{
+  "name": "tokenlens",
+  "description": "Pauses each Claude Code prompt once to show what sending it would cost, then sends it unchanged when you confirm.",
+  "version": "0.1.0",
+  "author": {
+    "name": "S-kalakota"
+  },
+  "homepage": "https://github.com/S-kalakota/Cursor_Token_Price_Estimator/tree/main/claude-code",
+  "keywords": ["cost", "tokens", "estimate", "budget"],
+  "defaultEnabled": false
+}
