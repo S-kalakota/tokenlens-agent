@@ -6,5 +6,7 @@ __pycache__/
 .mypy_cache/
 .venv/
 .env
+CLAUDE.local.md
+.claude/settings.local.json
 coverage.xml
 .coverage

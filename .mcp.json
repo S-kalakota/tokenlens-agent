@@ -1,12 +1,13 @@
 {
   "mcpServers": {
     "tokenlens": {
+      "type": "stdio",
       "command": "python3",
       "args": [
-        "mcp_server.py"
+        "${CLAUDE_PROJECT_DIR:-.}/mcp_server.py"
       ],
       "env": {
-        "TOKENLENS_STUB": "1"
+        "TOKENLENS_STUB": "${TOKENLENS_STUB:-1}"
       }
     }
   }
