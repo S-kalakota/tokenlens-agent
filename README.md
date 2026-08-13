@@ -11,7 +11,8 @@ Estimate what a prompt costs before you send it.
   its own [README](./cursor-cli/README.md). It uses `beforeSubmitPrompt` to
   estimate and pause a prompt before any model request, then sends the unchanged
   recalled prompt on confirmation. A direct user-hook installer is included for
-  accounts where local plugin loading is unavailable.
+  accounts where local plugin loading is unavailable; it also keeps the pending
+  cost visible in Cursor CLI's custom status line until the user decides.
 
 ---
 

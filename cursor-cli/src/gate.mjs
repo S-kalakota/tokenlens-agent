@@ -8,6 +8,17 @@ export function parseControl(prompt) {
   return { command: (match[1] ?? 'status').toLowerCase() };
 }
 
+/**
+ * Cursor history recall appends one line ending to blocked prompts. Remove only
+ * that transport artifact; user-authored whitespace remains part of identity.
+ */
+export function confirmationPrompt(prompt) {
+  const text = String(prompt ?? '');
+  if (text.endsWith('\r\n')) return text.slice(0, -2);
+  if (text.endsWith('\n')) return text.slice(0, -1);
+  return text;
+}
+
 /** Pure decision function shared by the hook and unit tests. */
 export function decide({ prompt, pending = null, config, estimate }) {
   const text = String(prompt ?? '');
@@ -23,12 +34,10 @@ export function decide({ prompt, pending = null, config, estimate }) {
   // Cursor slash commands operate the CLI itself and must never be gated.
   if (trimmed.startsWith('/')) return { action: 'allow', reason: 'slash-command' };
 
-  // Cursor CLI history recall may append a trailing newline to a blocked
-  // prompt. Ignore surrounding whitespace for confirmation while preserving
-  // edits anywhere inside the prompt.
-  const current = fingerprint(trimmed);
-  if (pending?.fingerprint === current) {
-    return { action: 'allow', reason: 'confirmed', fingerprint: current };
+  const current = fingerprint(text);
+  const recalled = fingerprint(confirmationPrompt(text));
+  if (pending?.fingerprint === current || pending?.fingerprint === recalled) {
+    return { action: 'allow', reason: 'confirmed', fingerprint: pending.fingerprint };
   }
 
   if (estimate.totalUsd < (config.thresholdUsd ?? 0)) {

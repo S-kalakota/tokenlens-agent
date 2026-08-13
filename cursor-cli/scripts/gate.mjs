@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 /** Cursor beforeSubmitPrompt hook: JSON in, native Cursor decision JSON out. */
+import { fileURLToPath } from 'node:url';
 import { loadConfig, setEnabled } from '../src/config.mjs';
 import { estimateTurn } from '../src/estimator.mjs';
 import { formatControl, formatEstimate } from '../src/format.mjs';
 import { decide } from '../src/gate.mjs';
 import { clearPending, prunePending, readPending, writePending } from '../src/state.mjs';
+import { refreshStatusLine } from '../src/statusline.mjs';
 import { readContextState } from '../src/transcript.mjs';
 
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const PRUNE_PROBABILITY = 0.02;
+const STATUSLINE_SCRIPT = fileURLToPath(new URL('./statusline.mjs', import.meta.url));
+
+async function clearConfirmation(conversationId) {
+  await clearPending(conversationId);
+  await refreshStatusLine(STATUSLINE_SCRIPT);
+}
 
 async function readHookInput() {
   const chunks = [];
@@ -78,7 +86,7 @@ async function main() {
     if (decision.command === 'on') next = await setEnabled(true);
     else if (decision.command === 'off') {
       next = await setEnabled(false);
-      await clearPending(conversationId);
+      await clearConfirmation(conversationId);
     }
     await prunePending();
     return block(formatControl(decision.command, next));
@@ -87,13 +95,15 @@ async function main() {
   if (decision.action === 'block') {
     const stored = await writePending(conversationId, {
       fingerprint: decision.fingerprint,
+      costUsd: decision.estimate.totalUsd,
     });
     // If confirmation state cannot be stored, fail open instead of trapping the user.
     if (!stored) return allow();
-    return block(formatEstimate(estimate, context));
+    const statusLineActive = await refreshStatusLine(STATUSLINE_SCRIPT);
+    return block(formatEstimate(estimate, { ...context, statusLineActive }));
   }
 
-  if (pending !== null) await clearPending(conversationId);
+  if (pending !== null) await clearConfirmation(conversationId);
   if (Math.random() < PRUNE_PROBABILITY) await prunePending();
   return allow();
 }

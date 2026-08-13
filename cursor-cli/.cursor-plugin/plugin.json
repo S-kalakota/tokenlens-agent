@@ -1,7 +1,7 @@
 {
   "name": "tokenlens-cursor-cli",
   "displayName": "TokenLens for Cursor CLI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pauses each Cursor CLI prompt once to show its estimated usage cost, then sends it unchanged when confirmed.",
   "author": {
     "name": "S-kalakota"

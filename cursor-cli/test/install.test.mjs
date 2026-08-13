@@ -12,6 +12,8 @@ beforeEach(async () => {
 });
 
 const readHooks = async () => JSON.parse(await readFile(path.join(cursorHome, 'hooks.json'), 'utf8'));
+const readConfig = async () =>
+  JSON.parse(await readFile(path.join(cursorHome, 'cli-config.json'), 'utf8'));
 
 describe('user hook installer', () => {
   it('installs a stable runtime and preserves existing hooks', async () => {
@@ -31,7 +33,10 @@ describe('user hook installer', () => {
     assert.deepEqual(installed.hooks.afterAgentResponse, existing.hooks.afterAgentResponse);
     assert.match(installed.hooks.beforeSubmitPrompt[1].command, /tokenlens.*runtime.*gate\.mjs/);
     await access(path.join(result.runtime, 'scripts', 'gate.mjs'));
+    await access(path.join(result.runtime, 'scripts', 'statusline.mjs'));
     await access(path.join(result.runtime, 'src', 'gate.mjs'));
+    assert.match((await readConfig()).statusLine.command, /tokenlens.*runtime.*statusline\.mjs/);
+    assert.equal(result.statusLine, 'installed');
   });
 
   it('is idempotent and uninstalls only TokenLens', async () => {
@@ -42,12 +47,32 @@ describe('user hook installer', () => {
 
     const removed = await uninstallTokenLens({ cursorHome });
     assert.equal(removed.removed, true);
+    assert.equal(removed.statusLineRemoved, true);
     assert.equal((await readHooks()).hooks.beforeSubmitPrompt, undefined);
+    assert.equal((await readConfig()).statusLine, undefined);
     await assert.rejects(access(removed.runtime));
+  });
+
+  it('preserves an existing custom status line', async () => {
+    const custom = { type: 'command', command: 'node my-status.mjs', padding: 4 };
+    await writeFile(
+      path.join(cursorHome, 'cli-config.json'),
+      JSON.stringify({ version: 1, hints: false, statusLine: custom }),
+    );
+    const result = await installTokenLens({ cursorHome });
+    assert.equal(result.statusLine, 'preserved');
+    assert.deepEqual((await readConfig()).statusLine, custom);
   });
 
   it('refuses to overwrite malformed hook configuration', async () => {
     const target = path.join(cursorHome, 'hooks.json');
+    await writeFile(target, '{not-json');
+    await assert.rejects(installTokenLens({ cursorHome }), /Cannot safely update/);
+    assert.equal(await readFile(target, 'utf8'), '{not-json');
+  });
+
+  it('refuses to overwrite malformed CLI configuration', async () => {
+    const target = path.join(cursorHome, 'cli-config.json');
     await writeFile(target, '{not-json');
     await assert.rejects(installTokenLens({ cursorHome }), /Cannot safely update/);
     assert.equal(await readFile(target, 'utf8'), '{not-json');

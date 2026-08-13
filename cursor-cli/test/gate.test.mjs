@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CONFIG_DEFAULTS } from '../src/config.mjs';
-import { decide, parseControl } from '../src/gate.mjs';
+import { confirmationPrompt, decide, parseControl } from '../src/gate.mjs';
 import { fingerprint } from '../src/state.mjs';
 
 const enabled = { ...CONFIG_DEFAULTS, enabled: true };
@@ -23,7 +23,7 @@ describe('decide', () => {
     const prompt = 'refactor the parser';
     const first = run(prompt);
     assert.equal(first.action, 'block');
-    assert.equal(first.fingerprint, fingerprint(prompt.trim()));
+    assert.equal(first.fingerprint, fingerprint(prompt));
 
     const second = run(prompt, { pending: { fingerprint: first.fingerprint } });
     assert.equal(second.action, 'allow');
@@ -38,6 +38,23 @@ describe('decide', () => {
     assert.equal(recalled.reason, 'confirmed');
   });
 
+  it('re-estimates user-authored whitespace and other edits', () => {
+    const first = run('refactor the parser');
+    const pending = { fingerprint: first.fingerprint };
+    assert.equal(run(' refactor the parser', { pending }).action, 'block');
+    assert.equal(run('refactor the parser ', { pending }).action, 'block');
+    assert.equal(run('refactor  the parser', { pending }).action, 'block');
+  });
+
+  it('confirms a recalled prompt that originally ended in a newline', () => {
+    const first = run('first line\n');
+    assert.equal(first.fingerprint, fingerprint('first line\n'));
+    assert.equal(
+      run('first line\n\n', { pending: { fingerprint: first.fingerprint } }).reason,
+      'confirmed',
+    );
+  });
+
   it('re-estimates edits and lets Cursor slash commands through', () => {
     const first = run('do the thing');
     assert.equal(
@@ -50,5 +67,14 @@ describe('decide', () => {
   it('honors disabled state and the configured threshold', () => {
     assert.equal(run('hello', { config: { ...enabled, enabled: false } }).reason, 'gate-disabled');
     assert.equal(run('hello', { config: { ...enabled, thresholdUsd: 1 } }).reason, 'below-threshold');
+  });
+});
+
+describe('confirmationPrompt', () => {
+  it('removes only Cursor history recall line endings', () => {
+    assert.equal(confirmationPrompt('hello\n'), 'hello');
+    assert.equal(confirmationPrompt('hello\r\n'), 'hello');
+    assert.equal(confirmationPrompt(' hello '), ' hello ');
+    assert.equal(confirmationPrompt('hello\n\n'), 'hello\n');
   });
 });

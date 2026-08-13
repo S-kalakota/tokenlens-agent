@@ -20,7 +20,10 @@ npm run install:cursor
 
 This copies the small local runtime to `~/.cursor/tokenlens/runtime` and safely
 adds one `beforeSubmitPrompt` entry to `~/.cursor/hooks.json`. Existing Cursor
-hooks are preserved. To remove only this hook and runtime later:
+hooks are preserved. It also adds a TokenLens line to Cursor's supported custom
+status-line configuration when no other custom status line is configured.
+Existing custom status lines are left untouched. To remove only the TokenLens
+hook, status line, and runtime later:
 
 ```sh
 cd cursor-cli
@@ -32,17 +35,39 @@ when Cursor CLI is launched from this checkout. Do not combine the project
 hook, user install, and plugin install; choose one registration method so the
 same prompt is not processed twice.
 
-Then enter a normal prompt. Cursor clears a prompt when a hook blocks it, just
-as Claude Code does, so the flow is:
+Then enter a normal prompt. Cursor CLI versions and terminal modes can either
+leave a blocked prompt in the composer or require recalling it, so the flow is:
 
 1. Press **Enter**. TokenLens blocks the submission and displays the estimate.
-2. Press **Up Arrow** to recall the prompt, then **Enter**. TokenLens verifies
-   the fingerprint and lets it through.
-3. If you edit the text, TokenLens estimates the edited prompt again.
+   The detailed yellow notice is temporary, but the cost remains in the
+   TokenLens status line above the composer.
+2. If the composer is empty, press **Up Arrow** to recall the prompt. Press
+   **Enter** with that exact prompt. TokenLens verifies its fingerprint, lets it
+   through, and clears the pending-cost line.
+3. If you type a new prompt or edit the recalled text, TokenLens replaces the
+   pending line with a newly calculated cost and waits for confirmation again.
 
-Cursor history can add surrounding whitespace to a recalled prompt. TokenLens
-normalizes only that surrounding whitespace for confirmation; edits inside the
-prompt still require a new estimate.
+Cursor history adds one trailing line ending to a recalled prompt. TokenLens
+normalizes only that Cursor-added line ending for confirmation. User-authored
+leading, trailing, or internal whitespace changes require a new estimate.
+
+### Persistent cost line
+
+Cursor renders `beforeSubmitPrompt.user_message` as a temporary notice and
+clears it after about 30 seconds. Hooks cannot change that native timer.
+TokenLens therefore stores the numeric pending cost alongside the prompt's
+one-way fingerprint and renders this compact line through Cursor CLI's custom
+status-line command:
+
+```text
+TokenLens $0.0072 pending · ↑ if needed + Enter: send · changed: recalculate
+```
+
+The line contains no prompt text. It remains until the unchanged prompt is
+confirmed, a new estimate replaces it, the pending state expires, or TokenLens
+is disabled. If `~/.cursor/cli-config.json` already contains a custom
+`statusLine`, the installer preserves it and reports that the persistent line
+was not installed; the normal detailed estimate notice still appears.
 
 ## Native Cursor plugin
 
@@ -59,7 +84,8 @@ Open Cursor's Customize page or use `/add-plugin` in Agent to install
 `tokenlens-cursor-cli` after the marketplace has been indexed. For local plugin
 development, `agent --plugin-dir ./cursor-cli` works when Cursor has enabled
 local user plugins for the signed-in account. Use the user-level installer
-above when that capability is unavailable.
+above when that capability is unavailable or when you want the persistent
+pending-cost status line.
 
 ## Controls
 
@@ -122,7 +148,7 @@ Set `TOKENLENS_HOME` to relocate the config and pending-confirmation state.
 ## Privacy and failure behavior
 
 - Prompt text is never written to disk. Pending confirmation stores only a
-  SHA-256 fingerprint scoped to the Cursor conversation.
+  SHA-256 fingerprint and numeric estimate scoped to the Cursor conversation.
 - Transcript content is read locally only to approximate context length.
 - The plugin makes no network calls of its own.
 - Hook errors, malformed input, missing conversation IDs, unreadable
@@ -140,4 +166,4 @@ npm test
 
 The tests cover the decision flow, pricing, Cursor transcript shape, native
 hook protocol, installer merge/uninstall behavior, privacy invariant, and
-plugin manifests.
+plugin manifests, including the persistent status-line lifecycle.

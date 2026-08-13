@@ -1,22 +1,29 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, it } from 'node:test';
 
 const GATE = fileURLToPath(new URL('../scripts/gate.mjs', import.meta.url));
+const STATUSLINE = fileURLToPath(new URL('../scripts/statusline.mjs', import.meta.url));
 let home;
+let cursorConfigHome;
 
 beforeEach(async () => {
   home = await mkdtemp(path.join(tmpdir(), 'tokenlens-cursor-home-'));
+  cursorConfigHome = await mkdtemp(path.join(tmpdir(), 'tokenlens-cursor-config-'));
 });
 
 function runHook(payload, { stdin } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [GATE], {
-      env: { ...process.env, TOKENLENS_HOME: home },
+      env: {
+        ...process.env,
+        CURSOR_CONFIG_DIR: cursorConfigHome,
+        TOKENLENS_HOME: home,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -49,18 +56,44 @@ describe('Cursor beforeSubmitPrompt hook', () => {
     const first = await runHook(submit(prompt));
     assert.equal(first.code, 0);
     assert.equal(first.decision.continue, false);
-    assert.match(first.decision.user_message, /Estimated cost\s+\$/);
+    assert.match(first.decision.user_message, /TokenLens estimated \$/);
+    assert.doesNotMatch(first.decision.user_message, /cost stays in the TokenLens status line/);
     assert.match(first.decision.user_message, /Model\s+auto/);
-    assert.match(first.decision.user_message, /Press UP, then ENTER/);
+    assert.match(first.decision.user_message, /Press UP if needed, then ENTER/);
 
     // Cursor's history recall can add a trailing newline.
     const second = await runHook(submit(`${prompt}\n`));
     assert.deepEqual(second.decision, { continue: true });
   });
 
+  it('activates and refreshes a configured persistent cost line', async () => {
+    const configPath = path.join(cursorConfigHome, 'cli-config.json');
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        version: 1,
+        statusLine: { type: 'command', command: `node '${STATUSLINE}'` },
+      }),
+    );
+    const first = await runHook(submit('keep this estimate visible'));
+    assert.match(first.decision.user_message, /cost stays in the TokenLens status line/);
+    assert.match(await readFile(configPath, 'utf8'), /--tokenlens-refresh=\d+/);
+
+    assert.deepEqual((await runHook(submit('keep this estimate visible\n'))).decision, {
+      continue: true,
+    });
+    assert.equal((await readdir(path.join(home, 'pending'))).length, 0);
+  });
+
   it('pauses again after an edit and isolates conversations', async () => {
-    await runHook(submit('rewrite the billing module'));
-    assert.equal((await runHook(submit('rewrite it carefully'))).decision.continue, false);
+    const original = await runHook(submit('rewrite the billing module'));
+    const edited = await runHook(submit('rewrite it carefully'));
+    assert.equal(edited.decision.continue, false);
+    assert.notEqual(edited.decision.user_message, original.decision.user_message);
+    assert.deepEqual((await runHook(submit('rewrite it carefully\n'))).decision, {
+      continue: true,
+    });
+    assert.equal((await runHook(submit('rewrite the billing module'))).decision.continue, false);
     assert.equal(
       (
         await runHook(
@@ -96,5 +129,6 @@ describe('Cursor beforeSubmitPrompt hook', () => {
     const stored = await readFile(path.join(pending, files[0]), 'utf8');
     assert.doesNotMatch(stored, new RegExp(secret));
     assert.match(JSON.parse(stored).fingerprint, /^[a-f0-9]{64}$/);
+    assert.equal(typeof JSON.parse(stored).costUsd, 'number');
   });
 });

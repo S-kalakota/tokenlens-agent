@@ -12,14 +12,17 @@ const readJson = async (base, relative) =>
 describe('Cursor plugin metadata', () => {
   it('declares a valid native Cursor plugin', async () => {
     const manifest = await readJson(root, '.cursor-plugin/plugin.json');
+    const packageFile = await readJson(root, 'package.json');
     assert.equal(manifest.name, 'tokenlens-cursor-cli');
     assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+    assert.equal(manifest.version, packageFile.version);
     assert.equal(typeof manifest.description, 'string');
     assert.equal(manifest.hooks, './hooks/hooks.json');
   });
 
   it('is listed by the repository marketplace', async () => {
     const marketplace = await readJson(repositoryRoot, '.cursor-plugin/marketplace.json');
+    assert.equal(marketplace.metadata.version, (await readJson(root, 'package.json')).version);
     const plugin = marketplace.plugins.find((entry) => entry.name === 'tokenlens-cursor-cli');
     assert.equal(plugin.source, './cursor-cli');
   });
@@ -38,6 +41,7 @@ describe('native hook wiring', () => {
   it('ships each referenced script', async () => {
     await access(path.join(root, 'scripts/gate.mjs'));
     await access(path.join(root, 'scripts/control.mjs'));
+    await access(path.join(root, 'scripts/statusline.mjs'));
   });
 
   it('provides the same hook directly for this checkout', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "tokenlens-cursor-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cursor CLI plugin that estimates a prompt's usage cost and pauses it until confirmed.",
   "private": true,
   "type": "module",

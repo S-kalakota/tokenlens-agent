@@ -22,7 +22,10 @@ export function formatEstimate(estimate, context = {}) {
   }
 
   return [
-    'TokenLens paused this prompt. Nothing was sent, so nothing was billed.',
+    `TokenLens estimated ${estimate.formattedTotal}. This prompt is paused and nothing was billed.`,
+    ...(context.statusLineActive
+      ? ['The cost stays in the TokenLens status line until you decide.']
+      : []),
     '',
     table([
       ['Estimated cost', estimate.formattedTotal],
@@ -32,8 +35,8 @@ export function formatEstimate(estimate, context = {}) {
       ['Model', modelValue],
     ]),
     '',
-    'Press UP, then ENTER, to recall and send it unchanged.',
-    'Edit the recalled prompt and you get a fresh estimate.',
+    'Press UP if needed, then ENTER, to send the same prompt unchanged.',
+    'Type something new, or edit the recalled prompt, to get a fresh estimate.',
     'Type "tokenlens off" to stop gating.',
     '',
     'Estimate only: Cursor may make multiple model calls and provider rates can change.',
