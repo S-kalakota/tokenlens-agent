@@ -19,6 +19,28 @@ The plugin ships **disabled**, so installing it never silently starts gating
 your prompts. The `enable` step is the opt-in. To try it from a local checkout,
 run `claude plugin marketplace add ./` from the repository root instead.
 
+### The reply-length estimator
+
+The cost of a turn depends on how long the reply will be, and that is predicted
+by a trained model rather than assumed. It runs as a small local service from
+[Token_Counter](https://github.com/nkanthed06/Token_Counter):
+
+```sh
+python3 service/app.py --port 8787
+```
+
+The endpoint and timeout live in `model/feature-manifest.json` under
+`inference`. Nothing is sent anywhere else: the service receives the 14-feature
+payload only, which by design carries no prompt text.
+
+**It answers for `claude-haiku-4-5` and `claude-sonnet-5` only** — the models the
+predictor was trained on. Any other model, Opus included, is refused rather than
+guessed at, and the estimate says so instead of showing an invented number.
+
+If the service is not running, the gate falls back to the flat
+`expectedOutputTokens` assumption and labels it. A broken estimator never blocks
+a prompt.
+
 ## The two-step flow
 
 1. Type a prompt and press **Enter**.

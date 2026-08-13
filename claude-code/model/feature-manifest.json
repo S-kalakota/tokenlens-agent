@@ -1,14 +1,18 @@
 {
   "feature_schema_version": "tokenlens.ml-features.v1",
   "payload_schema": "contracts/ml-feature-payload.v1.schema.json",
-  "model_version": "tokenlens-cost-model-v1-pending-artifact",
+  "model_version": "tokenlens-cost-model-v1-combined",
   "collector_version": "1.0.0",
-  "compatibility_status": "provisional-v1-awaiting-training-artifacts",
+  "compatibility_status": "v1-http-inference",
   "inference": {
-    "runtime": "legacy-pricing-fallback",
+    "runtime": "tokenlens-http-v1",
+    "endpoint": "http://127.0.0.1:8787/v1/predict",
+    "timeout_ms": 2000,
+    "service": "https://github.com/nkanthed06/Token_Counter",
+    "trained_on_models": ["claude-haiku-4-5", "claude-sonnet-5"],
     "preprocessing_artifact": null,
     "preprocessing_sha256": null,
-    "model_artifact": null,
+    "model_artifact": "model/model_combined.joblib",
     "model_sha256": null
   },
   "feature_order": [

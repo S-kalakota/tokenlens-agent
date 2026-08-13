@@ -68,18 +68,18 @@ describe('ML feature contract assets', () => {
     );
   });
 
-  it('states the provisional fallback honestly until trained artifacts are supplied', async () => {
+  it('points inference at the trained model service and names its limits', async () => {
     const manifest = await readJson('model/feature-manifest.json');
-    expect(manifest.compatibility_status).toBe(
-      'provisional-v1-awaiting-training-artifacts',
-    );
-    expect(manifest.inference).toEqual({
-      runtime: 'legacy-pricing-fallback',
-      preprocessing_artifact: null,
-      preprocessing_sha256: null,
-      model_artifact: null,
-      model_sha256: null,
-    });
+    expect(manifest.compatibility_status).toBe('v1-http-inference');
+    expect(manifest.inference.runtime).toBe('tokenlens-http-v1');
+    expect(manifest.inference.endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//u);
+    expect(manifest.inference.timeout_ms).toBeGreaterThan(0);
+    // The trained corpus covers these two models and no others. Anything else
+    // must be refused rather than estimated.
+    expect(manifest.inference.trained_on_models).toEqual([
+      'claude-haiku-4-5',
+      'claude-sonnet-5',
+    ]);
   });
 });
 

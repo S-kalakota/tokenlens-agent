@@ -382,6 +382,26 @@ function validateInferenceManifest(manifest, issues) {
         issues.push(`manifest.inference.${artifact} and ${checksum} must remain null while provisional`);
       }
     }
+  } else if (manifest.compatibility_status === 'v1-http-inference') {
+    // The trained pipeline is a Python artifact owned by the estimator service,
+    // so this repository holds no local file to checksum. What must be pinned
+    // instead is where the service lives and which models it can answer for --
+    // an unlisted model has to be refused, never estimated.
+    if (inference.runtime !== 'tokenlens-http-v1') {
+      issues.push('manifest.inference.runtime must be tokenlens-http-v1 for HTTP inference');
+    }
+    requireNonEmptyString(inference.endpoint, 'manifest.inference.endpoint', issues);
+    if (!Number.isInteger(inference.timeout_ms) || inference.timeout_ms <= 0) {
+      issues.push('manifest.inference.timeout_ms must be a positive integer');
+    }
+    validateUniqueStrings(
+      inference.trained_on_models,
+      'manifest.inference.trained_on_models',
+      issues,
+    );
+    if (Array.isArray(inference.trained_on_models) && inference.trained_on_models.length === 0) {
+      issues.push('manifest.inference.trained_on_models must name at least one model');
+    }
   } else {
     issues.push('manifest.compatibility_status must be a recognized compatibility state');
   }
