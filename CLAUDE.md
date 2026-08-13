@@ -6,15 +6,22 @@ user's intent.
 
 ## Tool usage
 
-- Before acting on a long, repetitive, or context-heavy user request, call the
-  TokenLens `optimize_prompt` MCP tool with the complete request.
+- The capability-gated native composer bridge is the target authority for
+  pre-send optimization. Never call `optimize_prompt` automatically on a prompt
+  that Claude has already received; that would duplicate analysis after the
+  token spend has occurred.
+- Stock Claude Code 2.1.231 does not provide the required native composer API.
+  The plugin scaffold therefore remains inactive, and `tokenlens-claude` is only
+  a legacy development harness rather than the completed native experience.
+- Use `optimize_prompt` only when the user explicitly requests diagnostics or a
+  fresh analysis of text already in the conversation.
 - Present the highest-value rewrites with their estimated savings. Preserve the
   user's requirements and never silently remove constraints to save tokens.
-- Reuse one `session_id` throughout a Claude Code conversation so TokenLens can
-  resume graph state and learn from related turns.
-- After the user accepts, edits, rejects, or ignores a suggested rewrite, call
-  `record_outcome` exactly once with the real outcome. Do not invent acceptance
-  or savings when the user's choice is ambiguous.
+- Reuse one `session_id` throughout a Claude Code conversation for explicit MCP
+  analyses so TokenLens can resume related graph state.
+- Use MCP `record_outcome` only for explicit analyses that bypassed a pre-send
+  integration. A compatible native bridge records its own Accept, Skip, Edit,
+  release, and usage events.
 - If TokenLens is unavailable, continue with the user's request and report the
   integration failure concisely instead of blocking unrelated work.
 

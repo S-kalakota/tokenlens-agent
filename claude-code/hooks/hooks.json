@@ -1,0 +1,29 @@
+{
+  "description": "Reports native-composer compatibility and provides an explicitly opt-in, display-only pre-send approximation.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/compatibility.py\" --hook",
+            "timeout": 5,
+            "statusMessage": "Checking TokenLens native composer compatibility..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.venv/bin/python\" \"${CLAUDE_PLUGIN_ROOT}/prompt_hook.py\"",
+            "timeout": 120,
+            "statusMessage": "TokenLens is analyzing this draft..."
+          }
+        ]
+      }
+    ]
+  }
+}

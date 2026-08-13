@@ -5,17 +5,24 @@ Companion to `tokenlens-agent-architecture.md`. That doc says what the system is
 Four organizing ideas:
 
 1. **Contracts before parallelism.** An hour of schema work up front lets four build agents run without stepping on each other. Skip it and the back half of the build is spent reconciling field names.
-2. **Walking skeleton first.** Every layer ships a stub on day one so the full path (draft -> first Enter -> cost/suggestions -> Accept or Skip -> second Enter -> fake Claude response) runs end to end before any component is real. Then stubs get replaced one at a time.
+2. **Native walking skeleton first.** Every layer ships a stub on day one so the
+   full path inside the normal `claude` UI (draft -> first Enter ->
+   cost/suggestions -> Accept or Skip -> second Enter -> fake Claude response)
+   runs end to end before any component is real. Then stubs get replaced one at
+   a time.
 3. **Companion, not coupling.** The agent is deployed beside TokenLens, not inside it. It owns its process, MongoDB collections, MCP surface, and configuration. TokenLens may later supply a booster artifact and exported session history, but neither codebase imports the other and the companion remains runnable with fixtures when those inputs are absent.
-4. **No approval, no send.** Only the pre-send wrapper may invoke Claude, and only a `ready` draft created by an explicit Accept or Skip decision may cross that boundary. MCP is optional and cannot replace the wrapper because it runs after Claude has already received a prompt.
+4. **No approval, no send.** Only the native composer bridge may release a prompt
+   to Claude, and only a `ready` draft created by an explicit Accept or Skip
+   decision may cross that boundary. MCP is optional and cannot replace the
+   bridge because it runs after Claude has already received a prompt.
 
 ---
 
 ## 1. The pre-send interaction contract
 
-Users launch `tokenlens-claude`, not the stock Claude composer, when they want
-pre-send optimization. The wrapper owns the prompt buffer and interprets Enter
-according to state:
+Users launch the stock interactive `claude` UI. TokenLens is installed as a
+native Claude Code plugin/host extension. Its composer bridge intercepts Enter
+before Claude receives the prompt and interprets it according to state:
 
 ```text
 draft --first Enter--> analyzing --suggestions--> review
@@ -23,33 +30,59 @@ review --Accept/Skip--> ready --second Enter--> sending --> next draft
 review/ready --edit--> draft
 ```
 
-- First Enter snapshots the prompt, increments `draft_version`, creates an
+- First Enter is intercepted before the model request. It snapshots the prompt,
+  increments `draft_version`, creates an
   `analysis_id`, and computes a SHA-256 hash over the exact UTF-8 bytes.
 - The cost result renders immediately. Retrieval, OpenRouter reasoning, and
   rewrite rescoring continue asynchronously.
 - `[1]`, `[2]`, or `[3]` accepts a ranked rewrite; `[S]` skips and keeps the
-  original. Accept or Skip is mandatory before second Enter.
-- Accept replaces the visible buffer with the selected rewrite. Skip leaves the
-  original visible. Both freeze a `selected_prompt_hash` and enter `ready`.
+  original. The controls and results render inside Claude Code. Accept or Skip
+  is mandatory before second Enter.
+- Accept replaces the native composer buffer with the selected rewrite. Skip
+  restores the original. Both freeze a `selected_prompt_hash` and enter `ready`.
 - Any edit in `review` or `ready` invalidates the analysis and selection. The
   next Enter is another first Enter, never a send.
-- Second Enter recomputes the visible-buffer hash and requires equality with the
-  analyzed/selected version before launching Claude.
+- Second Enter recomputes the native composer hash and requires equality with
+  the analyzed/selected version before releasing the prompt to the same
+  interactive Claude session.
 - Stale async results are discarded by `{analysis_id, draft_version,
   prompt_hash}`. A canceled task is never allowed to repaint the current UI.
 - A restart never restores `ready` permission. The user must analyze and choose
   again, even if graph checkpoints can resume internal optimization work.
 
-The wrapper launches `claude -p` as an argv array, never through a shell, reads
-`--output-format stream-json`, captures the returned Claude session ID, and uses
-`--resume <session_id>` for subsequent approved turns from the same working
-directory. If launch or streaming fails, record `send_failed`, return to `ready`,
-and require another explicit Enter; never retry a possibly delivered prompt
-automatically.
+The bridge never launches `claude -p`; Claude Code already owns the active
+conversation and model stream. If native submission fails, record `send_failed`,
+restore the selected text, return to `ready`, and require another explicit Enter;
+never retry a possibly delivered prompt automatically.
+
+### Phase 0 capability gate
+
+Before implementation work begins, prove that the targeted Claude Code host can:
+
+1. block the first submission before any model request;
+2. preserve or restore the exact composer buffer after interception;
+3. render asynchronous status and selectable suggestions in the native UI;
+4. replace the composer buffer;
+5. report edits and a subsequent Enter; and
+6. release an approved prompt exactly once into the current session.
+
+The current public `UserPromptSubmit` hook alone does not pass this gate. On a
+block, Claude Code erases the prompt, and the hook API has no composer-buffer,
+custom-control, or empty-Enter surface. The implementation therefore needs a
+supported native composer extension API or a versioned Claude Code host adapter.
+Do not substitute MCP, hook warning text, a slash-command confirmation, or a
+separate terminal wrapper: those are different user workflows.
+
+The repository currently contains the previous `tokenlens-claude` wrapper. Treat
+it as migration input, not completion of this plan: reuse its pure state-machine
+tests and the optimizer/data layers, then retire its prompt-toolkit renderer,
+`claude -p` subprocess client, and wrapper entry point after the native bridge
+passes equivalent tests. The desired native workflow is not complete merely
+because the legacy wrapper still works.
 
 ### UI acceptance criteria
 
-The terminal must make the boundary visible:
+The native Claude Code UI must make the boundary visible:
 
 ```text
 Original estimate: 1,240 tokens
@@ -63,7 +96,7 @@ Choice: 1
 Ready to send optimized prompt. Press Enter to send; editing restarts analysis.
 ```
 
-No Claude process may start before the final line and the second Enter.
+No Claude model request may start before the final line and the second Enter.
 
 ---
 
@@ -121,19 +154,23 @@ Keep counts alongside every rate so early values can be shrunk toward a global p
 
 ---
 
-## 3. Phase 0 — Contracts
+## 3. Phase 0 — Native capability spike and contracts
 
-Budget: 1 to 1.5 hours, done by one person. Nothing else starts until this is committed.
+The capability spike is a blocking, time-boxed investigation owned by one person.
+Do not estimate or begin the native UI implementation until it passes. Once it
+passes, allow roughly 1 to 1.5 hours for the shared contracts and skeleton.
 
 ### 3.1 Repo skeleton
 
 ```
 tokenlens-agent/
-  cli/
-    app.py               # terminal composer and state transitions
-    state.py             # draft/analyzing/review/ready/sending contract
-    renderer.py          # cost, suggestions, and Claude stream rendering
-    claude_client.py     # safe argv invocation and session resume
+  claude-code/
+    .claude-plugin/plugin.json # installable Claude Code plugin manifest
+    hooks/hooks.json           # defense-in-depth lifecycle hooks
+    native_bridge.py           # supported native composer host adapter
+    state.py                   # draft/analyzing/review/ready/sending contract
+    renderer.py                # native cost/suggestion controls
+    compatibility.py           # startup host-capability handshake
   optimization_service.py # in-process cost/suggestion event stream
   mcp_server.py
   agent/
@@ -154,8 +191,8 @@ tokenlens-agent/
   scripts/
     run_local.py         # invoke graph directly, no MCP
   tests/
-  .mcp.json              # optional Claude Code diagnostic MCP configuration
-  CLAUDE.md              # prevents duplicate optimization inside Claude
+  .mcp.json              # optional diagnostic MCP configuration
+  CLAUDE.md              # prevents duplicate post-send optimization
   .env.example
 ```
 
@@ -208,10 +245,10 @@ class AgentState(TypedDict):
 
 Nodes only add keys. No node mutates a key another node wrote.
 
-**C. Composer state and analysis events**
+**C. Native composer state and analysis events**
 
 ```python
-class ComposerState(TypedDict):
+class NativeComposerState(TypedDict):
     phase: Literal["draft", "analyzing", "review", "ready", "sending"]
     draft_text: str
     draft_version: int
@@ -222,7 +259,7 @@ class ComposerState(TypedDict):
     decision: Literal["accepted", "skipped"] | None
     selected_prompt: str | None
     selected_prompt_hash: str | None
-    claude_session_id: str | None
+    claude_session_id: str
 
 class CostReady(TypedDict):
     analysis_id: str
@@ -238,8 +275,9 @@ class SuggestionsReady(TypedDict):
 ```
 
 All transition functions are pure and unit tested. The only function allowed to
-call `ClaudeClient.send()` accepts a state whose phase is `ready` and revalidates
-the prompt hash immediately before changing it to `sending`.
+call `NativeComposerPort.release_prompt()` accepts a state whose phase is
+`ready`, re-reads the live native buffer, and revalidates its hash immediately
+before changing the state to `sending`.
 
 **D. Repository interface**
 
@@ -258,9 +296,9 @@ def record_outcome(suggestion_id, accepted, actual_savings) -> None
 
 `load_context` is a single call returning everything the graph needs from the derived tier, so the graph makes one read at the top rather than scattered lookups per node.
 
-**E. In-process service and optional MCP surface**
+**E. Native bridge service and optional MCP surface**
 
-The wrapper consumes an event stream so cost can render before suggestions:
+The native bridge consumes an event stream so cost can render before suggestions:
 
 ```python
 async def analyze_draft(request: AnalyzeDraftRequest) -> AsyncIterator[
@@ -269,7 +307,7 @@ async def analyze_draft(request: AnalyzeDraftRequest) -> AsyncIterator[
 ```
 
 The optional MCP adapter exposes two tools for diagnostics and feedback from
-prompts that did not use the wrapper:
+prompts that bypassed the native integration:
 
 ```
 optimize_prompt(prompt, session_id?) -> {suggestions[], original_predicted_cost}
@@ -352,96 +390,130 @@ Every invocation needs `config={"configurable": {"thread_id": session_id}}`. A m
 
 ---
 
-### Agent D — Pre-send CLI, Claude handoff, and optional MCP
+### Agent D — Native Claude Code integration and optional MCP
 
-**Owns:** `cli/*`, `optimization_service.py`, `mcp_server.py`, `.mcp.json`,
-`CLAUDE.md`, and pre-send integration tests
+**Owns:** `claude-code/*`, `optimization_service.py`, `mcp_server.py`,
+`.mcp.json`, `CLAUDE.md`, and native integration tests
 
 **Must not touch:** anything under `agent/` beyond invoking the compiled graph
 
 **Job:**
-1. Build `tokenlens-claude` with a multiline prompt buffer and explicit state
-   renderer. Enter analyzes in `draft` and sends only in `ready`.
-2. Implement pure state transitions plus exact-byte SHA-256 hashing. Editing in
+1. Run the capability spike first. Implement a disposable adapter against the
+   targeted Claude Code version and prove all six Phase 0 capabilities with a
+   network/model-request spy. Stop the native work if the host cannot supply them.
+2. Package the supported adapter as an installable Claude Code plugin. The plugin
+   must activate in the normal `claude` UI and must not launch another Claude
+   process or display a separate composer.
+3. Implement pure state transitions plus exact-byte SHA-256 hashing. Editing in
    `review` or `ready` must synchronously clear the prior decision.
-3. Consume `analyze_draft` events. Render `CostReady` immediately and accept
+4. Intercept the first Enter, preserve the exact native buffer, and consume
+   `analyze_draft` events. Render `CostReady` immediately and accept
    `SuggestionsReady` only when all three identity fields still match.
-4. Implement Accept 1/2/3 and Skip. Accept copies the rewrite into the visible
-   buffer; both choices freeze the selected hash. An edit restarts the loop.
-5. Implement `ClaudeClient` with `asyncio.create_subprocess_exec`, structured
-   streaming output, no shell, fixed `cwd`, captured session ID, and explicit
-   resume. Never automatically retry a failed send.
-6. Persist analysis, decision, send result, and actual usage through `db/repo.py`.
+5. Render Accept 1/2/3, Skip, and Edit inside Claude Code. Accept writes the
+   rewrite into the native composer; Skip restores the original; both choices
+   freeze the selected hash. An edit restarts the loop.
+6. Intercept the second Enter only from `ready`, re-read the native composer,
+   revalidate its hash, persist a send-attempt ID, and call
+   `NativeComposerPort.release_prompt()` exactly once. Never automatically retry
+   an ambiguous submission.
+7. Persist analysis, decision, send result, and actual usage through `db/repo.py`.
    Treat edits as abandoned analyses, not rejected suggestions.
-7. Add integration tests with fake optimization and Claude subprocesses proving:
-   first Enter never invokes Claude; Accept and Skip each require second Enter;
-   edits invalidate readiness; stale events are ignored; double Enter while
-   analyzing cannot send; and one approved action results in at most one send.
-8. Keep FastMCP as an optional adapter over the same graph. Update `CLAUDE.md` so
-   a wrapper-launched prompt is not optimized again inside Claude.
-9. Verify real Claude print-mode streaming and session resume after all fake
-   subprocess tests pass.
+8. Add integration tests with a fake native host proving: first Enter makes zero
+   model requests; Accept and Skip each require second Enter; edits invalidate
+   readiness; stale events are ignored; double Enter while analyzing cannot
+   send; and one approved action results in at most one release.
+9. Add a compatibility test against the supported real Claude Code build. Assert
+   composer preservation/replacement, in-UI controls, same-session delivery, and
+   that hook/MCP fallback paths cannot bypass the gate.
+10. Keep MCP as an optional adapter over the same graph. Update `CLAUDE.md` so a
+    native-gated prompt is not optimized again after it reaches Claude.
 
-**Done when:** a prompt cannot reach Claude before first Enter, an explicit
-Accept/Skip, and second Enter; editing forces a fresh analysis; cost appears
-before suggestions; the approved prompt reaches Claude exactly once; and a
-follow-up approved prompt resumes the captured Claude session.
+**Done when:** the user starts ordinary `claude`; a prompt cannot reach Claude's
+model before first Enter, an explicit Accept/Skip, and second Enter; all analysis
+and choice UI appears inside Claude Code; editing forces a fresh analysis; cost
+appears before suggestions; the approved prompt reaches the current session
+exactly once; and no nested Claude process exists.
 
 ---
 
 ## 5. Phase order
 
-Roughly 20 hours. After phase 1, A and B run independently, C swaps stubs for real implementations as they land, and D returns in phase 5 to replace the fake Claude client and persist real outcomes.
+Estimate only after the native capability spike passes. After phase 1, A and B
+run independently, C swaps stubs for real implementations as they land, and D
+returns in phase 5 to connect real native submission and persist outcomes.
 
 | Phase | What lands | Gate to next phase | Est. |
 |---|---|---|---|
-| **0. Contracts** | Skeleton, schemas, feature-bucket split, stubs, fixtures | Everything imports, stubs return fixtures | 1.5h |
-| **1. Pre-send skeleton** | Wrapper state machine, fake cost/suggestions, fake Claude client | First Enter analyzes; Accept/Skip plus second Enter sends once | 3h |
+| **0. Native capability spike + contracts** | Prove composer interception/preservation/rendering/replacement/edit/second-Enter/release; then land schemas, stubs, fixtures | A supported host adapter passes all six capabilities with zero first-Enter model requests | Gate, then estimate |
+| **1. Native pre-send skeleton** | Plugin manifest, native bridge state machine, fake cost/suggestions, fake host release | Inside ordinary `claude`, first Enter analyzes; Accept/Skip plus second Enter releases once | 4h after gate |
 | **2. Real model** | Agent A complete, gate and rescore share one `ctx` | Savings deltas are real and parity test passes | 3.5h |
 | **3. Real memory** | Agent B complete, vector index live, backfilled, profile and block library populated | `load_context` returns real quantiles and rates | 4h |
 | **4. Behavior-changing reads** | `route` branching live, `allowed_types` filtering live, EV ranking live | A known block skips the LLM; a low-acceptance type never appears | 2.5h |
-| **5. Claude handoff + feedback** | Real stream-json client, session resume, decision/outcome writes | Approved prompt sends once; next turn resumes; profile changes | 3h |
+| **5. Native release + feedback** | Real composer release, same-session delivery, decision/outcome writes | Approved prompt sends once in current session; next native turn is gated; profile changes | 3h |
 | **6. Hardening** | Edit races, stale-result tests, crash handling, timeouts, empty retrieval | No stale or unapproved prompt can send under failure tests | 2.5h |
 
-**Phase 1 proves the required user-safety flow; phase 4 proves that memory changes behavior.** Neither can be cut. Phases 0 through 3 establish contracts, cost prediction, and retrieval; phase 4 makes stored context alter routing and suggestions; phase 5 completes the real Claude handoff and learning loop. If time compresses, reduce optional MCP work before weakening the pre-send gate or behavior-changing reads.
+**Phase 0 proves the requested experience is implementable on the selected Claude
+Code host; phase 1 proves the user-safety flow; phase 4 proves that memory changes
+behavior.** None can be cut. Do not continue building a wrapper and call it a
+native integration if phase 0 fails. If time compresses, reduce optional MCP work
+before weakening the pre-send gate or behavior-changing reads.
+
+### Temporary validation path
+
+While Phase 0 remains unavailable, enable the opt-in display-only hook mode to
+exercise the real backend from normal `claude`. First Enter runs analysis and
+shows copyable rewrites; the user manually recalls the original with Up + Enter
+or pastes a rewrite, analyzes it, and recalls it with Up + Enter. This mode must
+be documented as an approximation: it cannot preserve or replace the composer,
+offer native selection controls, or guarantee fail-closed behavior on a public
+hook timeout.
 
 ---
 
 ## 6. Risks, ranked by likelihood of biting
 
-**1. The prompt crosses the Claude boundary too early.** An MCP call chosen by
-Claude occurs after submission and cannot save the current turn. Mitigation: the
-wrapper owns the composer, the only Claude invocation is guarded by `ready`, and
-tests fail if first Enter starts a Claude subprocess.
+**1. Claude Code does not expose the required native composer surface.** The
+public `UserPromptSubmit` hook can block, but blocking erases the prompt and the
+hook cannot replace the buffer, render selectable controls, or observe an empty
+second Enter. Mitigation: make the capability spike the first blocking phase,
+pin supported Claude Code versions, and fail installation clearly when the host
+contract is absent. Do not claim a hook warning, slash command, MCP call, or
+standalone wrapper satisfies the native two-Enter workflow.
 
-**2. A stale suggestion is accepted after an edit.** Async work can finish after
+**2. The prompt crosses the Claude boundary too early.** An MCP call chosen by
+Claude occurs after submission and cannot save the current turn. Mitigation: the
+native bridge owns release permission, the only release is guarded by `ready`,
+and tests fail if first Enter creates any Claude model request.
+
+**3. A stale suggestion is accepted after an edit.** Async work can finish after
 the draft changes. Mitigation: tag every event with analysis ID, version, and
 hash; clear readiness synchronously on edit; verify the visible hash again on
 second Enter.
 
-**3. Feature-space drift between gate and rescore.** The model is context-dependent, so the savings number is only meaningful if every non-prompt feature is byte-identical across the two calls. Anything that recomputes `ctx` inside `rescore`, or imputes post-execution features differently at the two call sites, produces confident wrong numbers with no error. Mitigation: assemble `ctx` exactly once in `gate`, carry it in state, and keep the parity test from Agent A green.
+**4. Feature-space drift between gate and rescore.** The model is context-dependent, so the savings number is only meaningful if every non-prompt feature is byte-identical across the two calls. Anything that recomputes `ctx` inside `rescore`, or imputes post-execution features differently at the two call sites, produces confident wrong numbers with no error. Mitigation: assemble `ctx` exactly once in `gate`, carry it in state, and keep the parity test from Agent A green.
 
-**4. Claude delivery is ambiguous after a transport failure.** Blind retry can
+**5. Claude delivery is ambiguous after a transport failure.** Blind retry can
 duplicate a task. Mitigation: persist send attempt IDs, never retry automatically,
-show the failure, and require explicit confirmation. Where the CLI exposes a
-session/result ID, use it to reconcile before retrying.
+show the failure, and require explicit confirmation. Where the native host
+exposes a turn/result ID, use it to reconcile before retrying.
 
-**5. Vector index timing.** Atlas index builds and Automated Embeddings backfill take time and need documents present. Do the index and the backfill in phase 0 or early phase 1, even though retrieval is not wired until phase 3.
+**6. Vector index timing.** Atlas index builds and Automated Embeddings backfill take time and need documents present. Do the index and the backfill in phase 0 or early phase 1, even though retrieval is not wired until phase 3.
 
-**6. Empty derived tier.** Until `user_profile` and `block_library` have content, gate falls back to the hard floor, `allowed_types` is unfiltered, and EV ranking degrades to raw savings. That path needs to work, but the system is uninteresting there. Run `backfill.py` against real session history early so the derived tier starts populated.
+**7. Empty derived tier.** Until `user_profile` and `block_library` have content, gate falls back to the hard floor, `allowed_types` is unfiltered, and EV ranking degrades to raw savings. That path needs to work, but the system is uninteresting there. Run `backfill.py` against real session history early so the derived tier starts populated.
 
-**7. Latency.** Vector search plus an OpenRouter round trip plus two inference calls can exceed 8 seconds. Batch the rescore call, cap candidates at 3, truncate retrieved examples to about 200 characters each, and emit the gate node's cost band as a partial result immediately so something appears within roughly 300ms. The `deterministic` route should return in well under a second, which is also the clearest evidence that memory is doing work.
+**8. Latency.** Vector search plus an OpenRouter round trip plus two inference calls can exceed 8 seconds. Batch the rescore call, cap candidates at 3, truncate retrieved examples to about 200 characters each, and emit the gate node's cost band as a partial result immediately so something appears within roughly 300ms. The `deterministic` route should return in well under a second, which is also the clearest evidence that memory is doing work.
 
-**8. Scope creep.** Fireworks as a second gate-node model is explicitly optional in the architecture doc. Skip unless everything else is finished. Same for retraining the booster from logged outcomes: the calibration bias term already captures most of the value at a fraction of the cost.
+**9. Scope creep.** Fireworks as a second gate-node model is explicitly optional in the architecture doc. Skip unless everything else is finished. Same for retraining the booster from logged outcomes: the calibration bias term already captures most of the value at a fraction of the cost.
 
 ---
 
 ## 7. First four commits
 
-1. `chore: repo skeleton, state schema, repo interface, feature buckets, stub fixtures`
-2. `feat: langgraph graph with five stubbed nodes and run_local script`
-3. `feat: pre-send state machine with fake optimizer and Claude client`
-4. `feat: display cost and require Accept or Skip before Claude handoff`
+1. `spike: prove native Claude composer interception and guarded release`
+2. `chore: native plugin skeleton, state schema, repo interface, stub fixtures`
+3. `feat: langgraph graph with five stubbed nodes and run_local script`
+4. `feat: native two-enter state machine with in-Claude review controls`
 
-After commit four the required two-Enter path runs end to end on fake data, and
-every remaining task replaces one stub without weakening the send invariant.
+After commit four the required two-Enter path runs end to end inside ordinary
+Claude Code on fake data, and every remaining task replaces one stub without
+weakening the send invariant.

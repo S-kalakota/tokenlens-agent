@@ -1,0 +1,15 @@
+{
+  "name": "tokenlens-native",
+  "version": "0.1.0",
+  "description": "Capability-gated native composer bridge for TokenLens prompt analysis before Claude Code sends a turn.",
+  "author": {
+    "name": "TokenLens"
+  },
+  "keywords": [
+    "prompt-optimization",
+    "token-cost",
+    "pre-send",
+    "composer"
+  ],
+  "defaultEnabled": true
+}
