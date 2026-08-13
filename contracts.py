@@ -7,9 +7,9 @@ parallel without importing one another's internals.
 
 from typing import Literal, NotRequired, TypedDict
 
-
 Route = Literal["full", "deterministic", "skip"]
 BlockKind = Literal["fenced_code", "line_window"]
+DraftDecision = Literal["accepted", "skipped", "edited", "failed"]
 
 SUGGESTION_TYPES: tuple[str, ...] = (
     "dedupe",
@@ -107,9 +107,13 @@ class CandidateRewrite(TypedDict):
     rewrite: str
     rationale: str
     suggestion_type: str
+    # Deterministic collapse candidates carry the exact recurring block(s)
+    # they replace. LLM candidates normally omit this provenance.
+    source_block_hashes: NotRequired[list[str]]
 
 
 class ScoredRewrite(CandidateRewrite):
+    suggestion_id: NotRequired[str]
     predicted_cost: CostBand
     estimated_savings: float
     acceptance_probability: NotRequired[float]
@@ -122,12 +126,63 @@ class PackagedSuggestion(TypedDict):
     estimated_savings: float
     rationale: str
     suggestion_type: str
+    predicted_cost: NotRequired[CostBand]
+    source_block_hashes: NotRequired[list[str]]
 
 
 class OptimizePromptResponse(TypedDict):
+    analysis_id: str
+    prompt_hash: str
     suggestions: list[PackagedSuggestion]
     original_predicted_cost: CostBand
 
 
 class RecordOutcomeResponse(TypedDict):
     ok: bool
+
+
+class AnalyzeDraftRequest(TypedDict):
+    """Immutable identity and context captured on the first Enter."""
+
+    analysis_id: str
+    draft_version: int
+    prompt: str
+    prompt_hash: str
+    user_id: str
+    project: str | None
+    optimization_session_id: str
+    force_suggestions: NotRequired[bool]
+
+
+class CostReady(TypedDict):
+    """The fast first event produced after the gate prediction."""
+
+    event: Literal["cost_ready"]
+    analysis_id: str
+    draft_version: int
+    prompt_hash: str
+    cost: CostBand
+
+
+class SuggestionsReady(TypedDict):
+    """The terminal successful analysis event."""
+
+    event: Literal["suggestions_ready"]
+    analysis_id: str
+    draft_version: int
+    prompt_hash: str
+    suggestions: list[ScoredRewrite]
+    route: Route
+
+
+class AnalysisFailed(TypedDict):
+    """A terminal failure event that never grants permission to send."""
+
+    event: Literal["analysis_failed"]
+    analysis_id: str
+    draft_version: int
+    prompt_hash: str
+    error: str
+
+
+AnalysisEvent = CostReady | SuggestionsReady | AnalysisFailed

@@ -63,6 +63,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(
             set(COLLECTION_NAMES),
             {
+                "draft_analyses",
                 "sessions",
                 "prompt_embeddings",
                 "suggestions",

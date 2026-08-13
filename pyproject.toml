@@ -1,8 +1,46 @@
 [project]
 name = "tokenlens-agent"
 version = "0.1.0"
-description = "Context and contract layer for the TokenLens optimizer agent"
+description = "Persistent pre-send prompt optimizer for Claude Code"
 requires-python = ">=3.11"
+dependencies = [
+  "langchain-openai>=0.3",
+  "langgraph>=0.3",
+  "langgraph-checkpoint-mongodb>=0.1",
+  "lightgbm>=4.5",
+  "mcp[cli]>=1.9,<3",
+  "dnspython>=2.7",
+  "numpy>=1.26",
+  "prompt-toolkit>=3.0",
+  "pydantic>=2.10",
+  "pymongo>=4.10",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+  "ruff>=0.9",
+]
+
+[project.scripts]
+tokenlens-claude = "cli.app:main"
+tokenlens-mcp = "mcp_server:main"
+tokenlens-backfill = "db.backfill:main"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["config", "contracts", "mcp_server", "optimization_service"]
+
+[tool.setuptools.packages.find]
+include = ["agent*", "cli*", "db*", "fixtures*", "model*", "scripts*"]
+
+[tool.setuptools.package-data]
+fixtures = ["stub_data.json"]
+model = ["booster.txt"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

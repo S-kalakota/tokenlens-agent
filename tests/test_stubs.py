@@ -65,7 +65,8 @@ class StubBoundaryTests(unittest.TestCase):
             ["dedupe"],
         )
         hits = match_blocks(
-            "CREATE TABLE repeated_fixture (id bigint);",
+            "```sql\nCREATE TABLE repeated_fixture "
+            "(id bigint primary key);\n```",
             "user-1",
             "fixture-project",
         )
@@ -101,8 +102,12 @@ class StubBoundaryTests(unittest.TestCase):
         with patch.dict(os.environ, {"TOKENLENS_STUB": "0"}, clear=False):
             with self.assertRaises(NotImplementedError):
                 predict("A prompt", ctx)
-            with self.assertRaises(NotImplementedError):
-                find_similar("A prompt", "user-1")
+            with patch(
+                "db.repo._database",
+                side_effect=RuntimeError("real database invoked"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "real database invoked"):
+                    find_similar("A prompt", "user-1")
 
 
 if __name__ == "__main__":

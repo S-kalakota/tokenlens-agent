@@ -7,7 +7,9 @@
         "${CLAUDE_PROJECT_DIR:-.}/mcp_server.py"
       ],
       "env": {
-        "TOKENLENS_STUB": "${TOKENLENS_STUB:-1}"
+        "TOKENLENS_STUB": "${TOKENLENS_STUB:-1}",
+        "TOKENLENS_USER_ID": "${TOKENLENS_USER_ID:-mcp-user}",
+        "TOKENLENS_PROJECT": "${TOKENLENS_PROJECT:-}"
       }
     }
   }
