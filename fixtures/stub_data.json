@@ -1,0 +1,117 @@
+{
+  "prediction": {
+    "p10": 980.0,
+    "p50": 1280.0,
+    "p90": 1660.0
+  },
+  "context": {
+    "user_id": "fixture-user",
+    "session_id": "fixture-session",
+    "project": "fixture-project",
+    "target_model": "openai/gpt-4.1",
+    "session_turn_index": 4,
+    "recent_costs": [
+      720.0,
+      1180.0,
+      940.0
+    ],
+    "completion_ratio_median": 0.34,
+    "calibration_bias": -18.0
+  },
+  "profile": {
+    "user_id": "fixture-user",
+    "cost_quantiles": {
+      "p40": 760.0,
+      "p50": 980.0,
+      "p90": 2200.0,
+      "n": 42
+    },
+    "per_project": {
+      "fixture-project": {
+        "cost_quantiles": {
+          "p40": 820.0,
+          "p50": 1050.0,
+          "p90": 2400.0,
+          "n": 18
+        },
+        "calibration": {
+          "bias": -18.0,
+          "mae": 74.0,
+          "n": 18
+        },
+        "completion_ratio_median": 0.34
+      }
+    },
+    "accept_rate_by_type": {
+      "dedupe": {
+        "rate": 0.71,
+        "accepted": 12,
+        "total": 17
+      },
+      "trim_boilerplate": {
+        "rate": 0.24,
+        "accepted": 4,
+        "total": 17
+      },
+      "collapse_block": {
+        "rate": 0.66,
+        "accepted": 8,
+        "total": 12
+      }
+    },
+    "calibration": {
+      "bias": -11.0,
+      "mae": 91.0,
+      "n": 42
+    },
+    "completion_ratio_median": 0.38,
+    "updated_at": "2026-08-12T00:00:00Z"
+  },
+  "block_hits": [
+    {
+      "block_hash": "7a6b73905f748cadd4cb1c3de12e6ea442c85b5e3ef2dd63cee7d05f272b2295",
+      "kind": "fenced_code",
+      "normalized_text": "CREATE TABLE repeated_fixture (id bigint primary key);",
+      "start_line": 3,
+      "end_line": 25,
+      "token_count": 410,
+      "occurrences": 4,
+      "collapse_accepted": 2
+    }
+  ],
+  "retrieved_examples": [
+    {
+      "prompt_excerpt": "The same schema appeared in three consecutive prompts...",
+      "rewrite": "Reference the previously supplied schema instead of repeating it.",
+      "rationale": "The schema is already available in the session context.",
+      "suggestion_type": "collapse_block",
+      "actual_savings": 386.0,
+      "similarity": 0.94
+    },
+    {
+      "prompt_excerpt": "Two file listings contained identical generated declarations...",
+      "rewrite": "Keep one declaration block and name the duplicate files.",
+      "rationale": "Removing repeated generated content preserves the request.",
+      "suggestion_type": "dedupe",
+      "actual_savings": 244.0,
+      "similarity": 0.87
+    }
+  ],
+  "candidate_rewrites": [
+    {
+      "rewrite": "Reference the previously supplied schema and include only the changed fields.",
+      "rationale": "The unchanged schema is duplicated context.",
+      "suggestion_type": "collapse_block"
+    },
+    {
+      "rewrite": "Remove duplicate file excerpts and list the affected paths once.",
+      "rationale": "The repeated excerpts add cost without adding constraints.",
+      "suggestion_type": "dedupe"
+    },
+    {
+      "rewrite": "Keep the objective, constraints, and expected output; remove the template preamble.",
+      "rationale": "The preamble repeats instructions already stated by the request.",
+      "suggestion_type": "trim_boilerplate"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "tokenlens": {
+      "command": "python3",
+      "args": [
+        "mcp_server.py"
+      ],
+      "env": {
+        "TOKENLENS_STUB": "1"
+      }
+    }
+  }
+}

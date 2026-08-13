@@ -1,0 +1,4 @@
+# Phase 0 placeholder.
+# Replace this file with the exported TokenLens LightGBM booster in Part 3
+# before enabling non-stub predictions. predictor.py is the only module that
+# may load this artifact.

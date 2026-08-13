@@ -1,0 +1,16 @@
+[project]
+name = "tokenlens-agent"
+version = "0.1.0"
+description = "Context and contract layer for the TokenLens optimizer agent"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
