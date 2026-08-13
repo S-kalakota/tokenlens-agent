@@ -1,0 +1,19 @@
+{
+  "name": "tokenlens-cursor-cli",
+  "version": "0.1.0",
+  "description": "Cursor CLI plugin that estimates a prompt's usage cost and pauses it until confirmed.",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/S-kalakota/Cursor_Token_Price_Estimator.git",
+    "directory": "cursor-cli"
+  },
+  "scripts": {
+    "install:cursor": "node ./scripts/install.mjs",
+    "uninstall:cursor": "node ./scripts/install.mjs --uninstall",
+    "test": "node --test",
+    "validate": "node --test"
+  }
+}

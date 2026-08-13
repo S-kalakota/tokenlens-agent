@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "type": "command",
+        "command": "node \"cursor-cli/scripts/gate.mjs\"",
+        "timeout": 10,
+        "failClosed": false
+      }
+    ]
+  }
+}

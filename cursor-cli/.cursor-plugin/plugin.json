@@ -1,0 +1,13 @@
+{
+  "name": "tokenlens-cursor-cli",
+  "displayName": "TokenLens for Cursor CLI",
+  "version": "0.1.0",
+  "description": "Pauses each Cursor CLI prompt once to show its estimated usage cost, then sends it unchanged when confirmed.",
+  "author": {
+    "name": "S-kalakota"
+  },
+  "homepage": "https://github.com/S-kalakota/Cursor_Token_Price_Estimator/tree/cursor-cli-double-enter/cursor-cli",
+  "repository": "https://github.com/S-kalakota/Cursor_Token_Price_Estimator",
+  "hooks": "./hooks/hooks.json",
+  "keywords": ["cost", "tokens", "estimate", "budget", "cursor-cli", "hooks"]
+}

@@ -43,18 +43,16 @@ one more confirmation sends it.
 
 ### Why Up-then-Enter, and not a second Enter
 
-The Cursor build is a true double-Enter because Cursor leaves the prompt sitting
-in the composer when a `beforeSubmitPrompt` hook returns `continue: false`.
+A blocked `UserPromptSubmit` hook **erases the prompt** — the block path pushes
+a warning message but does not restore the input. So the confirming keystroke
+has to recall the prompt from history first. Claude Code also echoes
+`Original prompt: …` beneath the estimate, so nothing is lost even if you would
+rather retype or paste it.
 
-Claude Code does not. A blocked `UserPromptSubmit` hook **erases the prompt** —
-that is documented behavior, and it is what the shipped binary does; the block
-path only pushes a warning message and never restores the input. So the
-confirming keystroke has to recall the prompt from history first. Claude Code
-also echoes `Original prompt: …` beneath the estimate, so nothing is lost even
-if you would rather retype or paste it.
-
-This is the one behavior that could not be ported exactly. Everything else
-matches: estimate first, confirm to send, edits require a fresh estimate.
+The Cursor CLI counterpart in `cursor-cli/` uses the same Up-then-Enter flow:
+its native `beforeSubmitPrompt` hook also clears the composer when it blocks a
+submission. Both implementations estimate first, confirm to send, and require
+a fresh estimate after an edit.
 
 ## What the estimate actually measures
 

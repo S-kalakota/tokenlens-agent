@@ -1,0 +1,17 @@
+{
+  "name": "tokenlens",
+  "owner": {
+    "name": "S-kalakota"
+  },
+  "metadata": {
+    "description": "TokenLens prompt-cost tools for Cursor",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "tokenlens-cursor-cli",
+      "source": "./cursor-cli",
+      "description": "Pauses each Cursor CLI prompt once to show its estimated usage cost before it is sent."
+    }
+  ]
+}

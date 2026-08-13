@@ -7,6 +7,11 @@ Estimate what a prompt costs before you send it.
   [README](./claude-code/README.md). Same idea, ported to Claude Code's
   `UserPromptSubmit` hook, and it prices the context the turn re-sends rather
   than the prompt alone.
+- **Cursor CLI** — a native Cursor plugin in [`cursor-cli/`](./cursor-cli), with
+  its own [README](./cursor-cli/README.md). It uses `beforeSubmitPrompt` to
+  estimate and pause a prompt before any model request, then sends the unchanged
+  recalled prompt on confirmation. A direct user-hook installer is included for
+  accounts where local plugin loading is unavailable.
 
 ---
 
