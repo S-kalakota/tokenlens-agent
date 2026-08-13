@@ -2,15 +2,72 @@
 
 Companion to `tokenlens-agent-architecture.md`. That doc says what the system is. This one says what gets built, by whom, in what order, and what has to be true before the next thing starts.
 
-Two organizing ideas:
+Four organizing ideas:
 
 1. **Contracts before parallelism.** An hour of schema work up front lets four build agents run without stepping on each other. Skip it and the back half of the build is spent reconciling field names.
-2. **Walking skeleton first.** Every layer ships a stub on day one so the full path (Claude Code CLI -> MCP -> graph -> response) runs end to end before any component is real. Then stubs get replaced one at a time.
+2. **Walking skeleton first.** Every layer ships a stub on day one so the full path (draft -> first Enter -> cost/suggestions -> Accept or Skip -> second Enter -> fake Claude response) runs end to end before any component is real. Then stubs get replaced one at a time.
 3. **Companion, not coupling.** The agent is deployed beside TokenLens, not inside it. It owns its process, MongoDB collections, MCP surface, and configuration. TokenLens may later supply a booster artifact and exported session history, but neither codebase imports the other and the companion remains runnable with fixtures when those inputs are absent.
+4. **No approval, no send.** Only the pre-send wrapper may invoke Claude, and only a `ready` draft created by an explicit Accept or Skip decision may cross that boundary. MCP is optional and cannot replace the wrapper because it runs after Claude has already received a prompt.
 
 ---
 
-## 1. The context model
+## 1. The pre-send interaction contract
+
+Users launch `tokenlens-claude`, not the stock Claude composer, when they want
+pre-send optimization. The wrapper owns the prompt buffer and interprets Enter
+according to state:
+
+```text
+draft --first Enter--> analyzing --suggestions--> review
+review --Accept/Skip--> ready --second Enter--> sending --> next draft
+review/ready --edit--> draft
+```
+
+- First Enter snapshots the prompt, increments `draft_version`, creates an
+  `analysis_id`, and computes a SHA-256 hash over the exact UTF-8 bytes.
+- The cost result renders immediately. Retrieval, OpenRouter reasoning, and
+  rewrite rescoring continue asynchronously.
+- `[1]`, `[2]`, or `[3]` accepts a ranked rewrite; `[S]` skips and keeps the
+  original. Accept or Skip is mandatory before second Enter.
+- Accept replaces the visible buffer with the selected rewrite. Skip leaves the
+  original visible. Both freeze a `selected_prompt_hash` and enter `ready`.
+- Any edit in `review` or `ready` invalidates the analysis and selection. The
+  next Enter is another first Enter, never a send.
+- Second Enter recomputes the visible-buffer hash and requires equality with the
+  analyzed/selected version before launching Claude.
+- Stale async results are discarded by `{analysis_id, draft_version,
+  prompt_hash}`. A canceled task is never allowed to repaint the current UI.
+- A restart never restores `ready` permission. The user must analyze and choose
+  again, even if graph checkpoints can resume internal optimization work.
+
+The wrapper launches `claude -p` as an argv array, never through a shell, reads
+`--output-format stream-json`, captures the returned Claude session ID, and uses
+`--resume <session_id>` for subsequent approved turns from the same working
+directory. If launch or streaming fails, record `send_failed`, return to `ready`,
+and require another explicit Enter; never retry a possibly delivered prompt
+automatically.
+
+### UI acceptance criteria
+
+The terminal must make the boundary visible:
+
+```text
+Original estimate: 1,240 tokens
+Analyzing history…
+
+[1] 720 tokens  Save 520 (42%)  Collapse repeated schema
+[2] 1,150 tokens  Save 90 (7%)  Trim boilerplate
+[S] Skip and keep original
+
+Choice: 1
+Ready to send optimized prompt. Press Enter to send; editing restarts analysis.
+```
+
+No Claude process may start before the final line and the second Enter.
+
+---
+
+## 2. The context model
 
 This is the part the brief is actually testing. Storing state is easy. The requirement is that what you store and retrieve **changes what the system does next**, not that it gets pasted into a prompt. So the design rule for this project is:
 
@@ -18,7 +75,7 @@ This is the part the brief is actually testing. Storing state is easy. The requi
 
 ### Three tiers of memory
 
-**Tier 1: Episodic (raw events).** `sessions` and `suggestions`. One document per prompt seen, one per suggestion generated, with outcomes written back. Append-only. This is the substrate, not the thing the agent reads at decision time.
+**Tier 1: Episodic (raw events).** `draft_analyses`, `sessions`, and `suggestions`. One immutable record per first-Enter analysis, one per prompt actually sent, and one per suggestion generated, with decisions and outcomes written back. This is the substrate, not the thing the agent reads at decision time.
 
 **Tier 2: Derived (distilled facts).** `user_profile` and `block_library`. These are materialized from tier 1 on every outcome write, and they are what the agent actually consults. This is where "learned something last time" lives in a form that is cheap to read and directly actionable.
 
@@ -64,14 +121,20 @@ Keep counts alongside every rate so early values can be shrunk toward a global p
 
 ---
 
-## 2. Phase 0 — Contracts
+## 3. Phase 0 — Contracts
 
 Budget: 1 to 1.5 hours, done by one person. Nothing else starts until this is committed.
 
-### 2.1 Repo skeleton
+### 3.1 Repo skeleton
 
 ```
 tokenlens-agent/
+  cli/
+    app.py               # terminal composer and state transitions
+    state.py             # draft/analyzing/review/ready/sending contract
+    renderer.py          # cost, suggestions, and Claude stream rendering
+    claude_client.py     # safe argv invocation and session resume
+  optimization_service.py # in-process cost/suggestion event stream
   mcp_server.py
   agent/
     graph.py
@@ -91,14 +154,14 @@ tokenlens-agent/
   scripts/
     run_local.py         # invoke graph directly, no MCP
   tests/
-  .mcp.json              # shared Claude Code project MCP configuration
-  CLAUDE.md              # persistent instruction for when to call TokenLens
+  .mcp.json              # optional Claude Code diagnostic MCP configuration
+  CLAUDE.md              # prevents duplicate optimization inside Claude
   .env.example
 ```
 
 Rule: **no module talks to Mongo except `db/`, and no module loads the booster except `model/predictor.py`.** Everything else imports a function. This is what makes the parallel split safe.
 
-### 2.2 The four contracts
+### 3.2 The contracts
 
 **A. Cost prediction (context-dependent, not prompt-only)**
 
@@ -145,7 +208,40 @@ class AgentState(TypedDict):
 
 Nodes only add keys. No node mutates a key another node wrote.
 
-**C. Repository interface**
+**C. Composer state and analysis events**
+
+```python
+class ComposerState(TypedDict):
+    phase: Literal["draft", "analyzing", "review", "ready", "sending"]
+    draft_text: str
+    draft_version: int
+    analysis_id: str | None
+    analyzed_prompt_hash: str | None
+    original_cost: CostBand | None
+    suggestions: list[ScoredRewrite]
+    decision: Literal["accepted", "skipped"] | None
+    selected_prompt: str | None
+    selected_prompt_hash: str | None
+    claude_session_id: str | None
+
+class CostReady(TypedDict):
+    analysis_id: str
+    draft_version: int
+    prompt_hash: str
+    cost: CostBand
+
+class SuggestionsReady(TypedDict):
+    analysis_id: str
+    draft_version: int
+    prompt_hash: str
+    suggestions: list[ScoredRewrite]
+```
+
+All transition functions are pure and unit tested. The only function allowed to
+call `ClaudeClient.send()` accepts a state whose phase is `ready` and revalidates
+the prompt hash immediately before changing it to `sending`.
+
+**D. Repository interface**
 
 ```python
 # db/repo.py
@@ -154,27 +250,39 @@ def match_blocks(prompt, user_id, project) -> list[BlockHit]
 def log_session(prompt, predicted_cost, ctx) -> str
 def find_similar(prompt, user_id, k=3) -> list[RetrievedExample]
 def log_suggestions(session_id, rewrites) -> list[str]
-def record_outcome(suggestion_id, accepted, actual_savings) -> None   # also updates profile + blocks
+def log_draft_analysis(analysis) -> str
+def record_decision(analysis_id, decision, selected_prompt_hash) -> None
+def record_send_result(analysis_id, claude_session_id, usage, error=None) -> None
+def record_outcome(suggestion_id, accepted, actual_savings) -> None
 ```
 
 `load_context` is a single call returning everything the graph needs from the derived tier, so the graph makes one read at the top rather than scattered lookups per node.
 
-**D. MCP tool surface**
+**E. In-process service and optional MCP surface**
 
-Two tools, not one. The architecture doc names only `optimize_prompt`, but the write-back path needs an entry point (see Risk 2):
+The wrapper consumes an event stream so cost can render before suggestions:
+
+```python
+async def analyze_draft(request: AnalyzeDraftRequest) -> AsyncIterator[
+    CostReady | SuggestionsReady | AnalysisFailed
+]
+```
+
+The optional MCP adapter exposes two tools for diagnostics and feedback from
+prompts that did not use the wrapper:
 
 ```
 optimize_prompt(prompt, session_id?) -> {suggestions[], original_predicted_cost}
 record_outcome(suggestion_id, accepted, final_prompt?) -> {ok}
 ```
 
-### 2.3 Stub flag
+### 3.3 Stub flag
 
 `TOKENLENS_STUB=1` makes `predict`, `load_context`, `find_similar`, and the LLM call return fixtures. Commit the fixtures. This lets Agent C build the graph before A and B finish.
 
 ---
 
-## 3. The four build agents
+## 4. The four build agents
 
 Each block is sized for its own Claude Code session, with the contracts file in context.
 
@@ -204,13 +312,13 @@ Each block is sized for its own Claude Code session, with the contracts file in 
 **Must not touch:** `agent/`, `model/`, `mcp_server.py`
 
 **Job:**
-1. Create the cluster and six collections: `sessions`, `prompt_embeddings`, `suggestions`, `user_profile`, `block_library`, `checkpoints`.
+1. Create the cluster and seven collections: `draft_analyses`, `sessions`, `prompt_embeddings`, `suggestions`, `user_profile`, `block_library`, `checkpoints`.
 2. Stand up the vector index with Automated Embeddings on `sessions.prompt_text` **first, before writing query code.** Index builds are not instant and the backfill needs documents present.
 3. `find_similar` as a `$vectorSearch` aggregation joining through to `suggestions`, filtered to `accepted: true` and `actual_savings > 0`, scoped to the user. Retrieval that surfaces rejected suggestions actively degrades the reason node.
 4. `db/blocks.py`: normalize, hash fenced blocks and 20-line windows, upsert into `block_library` with occurrence counts. Deterministic and cheap, called on every prompt.
 5. `db/profile.py`: the single aggregation-pipeline update that recomputes quantiles, acceptance rates, and calibration residuals inside the `record_outcome` write. Store counts next to every rate and shrink toward a global prior below `n=10`.
 6. `db/backfill.py`: replay existing TokenLens session history into `sessions`, `block_library`, and `user_profile`. The derived tier is only useful once it has been populated, and there is no reason for the agent to start blind when the history already exists.
-7. Indexes: compound on `suggestions.session_id`, compound on `block_library.{user_id, block_hash}`, TTL on `checkpoints` at 24h.
+7. Indexes: unique on `draft_analyses.analysis_id`, compound on `draft_analyses.{user_id, created_at}`, compound on `suggestions.session_id`, compound on `block_library.{user_id, block_hash}`, TTL on `checkpoints` at 24h.
 
 **Done when:** `python -m db.backfill && python -c "from db.repo import load_context; print(load_context(...))"` returns populated quantiles and non-empty `accept_rate_by_type`, and a repeated prompt produces a `block_library` occurrence count above 1.
 
@@ -244,63 +352,96 @@ Every invocation needs `config={"configurable": {"thread_id": session_id}}`. A m
 
 ---
 
-### Agent D — MCP server and Claude Code integration
+### Agent D — Pre-send CLI, Claude handoff, and optional MCP
 
-**Owns:** `mcp_server.py`, `.mcp.json`, `CLAUDE.md`
+**Owns:** `cli/*`, `optimization_service.py`, `mcp_server.py`, `.mcp.json`,
+`CLAUDE.md`, and pre-send integration tests
 
 **Must not touch:** anything under `agent/` beyond invoking the compiled graph
 
 **Job:**
-1. `fastmcp` wrapper exposing both tools. No logic, just invoke and return.
-2. Write the tool descriptions deliberately. Claude Code uses those descriptions when deciding whether to call an MCP tool, so `optimize_prompt` should read as "call before sending a long or context-heavy prompt to estimate and reduce its token cost."
-3. `record_outcome`'s description instructs the agent to call it once the user has accepted, edited, or ignored a rewrite. This is the write-back path into the derived tier, so it is load-bearing rather than telemetry.
-4. Add a concise project-root `CLAUDE.md` rule instructing Claude Code to call `optimize_prompt` before acting on long or context-heavy prompts and to call `record_outcome` after the user accepts, edits, or rejects a rewrite. The MCP description supplies tool semantics; `CLAUDE.md` supplies the persistent project workflow.
-5. Register the stdio server at project scope in `.mcp.json`. Use `${CLAUDE_PROJECT_DIR:-.}` in the server path so startup does not depend on the shell's working directory, default `TOKENLENS_STUB` to `1` until the real implementations land, and never place credentials directly in the committed file.
-6. Verify with `claude mcp list`, `claude mcp get tokenlens`, and `/mcp` inside an interactive `claude` session. Approve the project server when Claude Code prompts on first use, then explicitly ask Claude to use TokenLens once before testing automatic invocation.
-7. Add an `--http` mode alongside stdio. It is the fallback when local subprocess spawning misbehaves or the server later needs to run remotely; Claude Code supports streamable HTTP with `claude mcp add --transport http`.
+1. Build `tokenlens-claude` with a multiline prompt buffer and explicit state
+   renderer. Enter analyzes in `draft` and sends only in `ready`.
+2. Implement pure state transitions plus exact-byte SHA-256 hashing. Editing in
+   `review` or `ready` must synchronously clear the prior decision.
+3. Consume `analyze_draft` events. Render `CostReady` immediately and accept
+   `SuggestionsReady` only when all three identity fields still match.
+4. Implement Accept 1/2/3 and Skip. Accept copies the rewrite into the visible
+   buffer; both choices freeze the selected hash. An edit restarts the loop.
+5. Implement `ClaudeClient` with `asyncio.create_subprocess_exec`, structured
+   streaming output, no shell, fixed `cwd`, captured session ID, and explicit
+   resume. Never automatically retry a failed send.
+6. Persist analysis, decision, send result, and actual usage through `db/repo.py`.
+   Treat edits as abandoned analyses, not rejected suggestions.
+7. Add integration tests with fake optimization and Claude subprocesses proving:
+   first Enter never invokes Claude; Accept and Skip each require second Enter;
+   edits invalidate readiness; stale events are ignored; double Enter while
+   analyzing cannot send; and one approved action results in at most one send.
+8. Keep FastMCP as an optional adapter over the same graph. Update `CLAUDE.md` so
+   a wrapper-launched prompt is not optimized again inside Claude.
+9. Verify real Claude print-mode streaming and session resume after all fake
+   subprocess tests pass.
 
-**Done when:** `/mcp` reports TokenLens connected, a long prompt in Claude Code triggers `optimize_prompt` without explicit invocation, and an accepted rewrite causes Claude Code to call `record_outcome`, moving the corresponding `accept_rate_by_type` value.
+**Done when:** a prompt cannot reach Claude before first Enter, an explicit
+Accept/Skip, and second Enter; editing forces a fresh analysis; cost appears
+before suggestions; the approved prompt reaches Claude exactly once; and a
+follow-up approved prompt resumes the captured Claude session.
 
 ---
 
-## 4. Phase order
+## 5. Phase order
 
-Roughly 16 to 18 hours. After phase 1, A and B run fully independently and C swaps stubs for real implementations as they land. D is idle between phase 1 and phase 5.
+Roughly 20 hours. After phase 1, A and B run independently, C swaps stubs for real implementations as they land, and D returns in phase 5 to replace the fake Claude client and persist real outcomes.
 
 | Phase | What lands | Gate to next phase | Est. |
 |---|---|---|---|
 | **0. Contracts** | Skeleton, schemas, feature-bucket split, stubs, fixtures | Everything imports, stubs return fixtures | 1.5h |
-| **1. Walking skeleton** | Five stubbed nodes, `run_local.py` runs, MCP tool callable from Claude Code | Fake suggestions appear in the CLI session | 2h |
+| **1. Pre-send skeleton** | Wrapper state machine, fake cost/suggestions, fake Claude client | First Enter analyzes; Accept/Skip plus second Enter sends once | 3h |
 | **2. Real model** | Agent A complete, gate and rescore share one `ctx` | Savings deltas are real and parity test passes | 3.5h |
 | **3. Real memory** | Agent B complete, vector index live, backfilled, profile and block library populated | `load_context` returns real quantiles and rates | 4h |
 | **4. Behavior-changing reads** | `route` branching live, `allowed_types` filtering live, EV ranking live | A known block skips the LLM; a low-acceptance type never appears | 2.5h |
-| **5. Feedback loop** | `record_outcome` wired end to end, profile updates inside the same write | Accept a rewrite, watch `accept_rate_by_type` and `block_library` move | 2h |
-| **6. Hardening** | Crash-resume verified, timeouts, empty-retrieval path, error surfaces | Kill mid-run, resume correctly | 2h |
+| **5. Claude handoff + feedback** | Real stream-json client, session resume, decision/outcome writes | Approved prompt sends once; next turn resumes; profile changes | 3h |
+| **6. Hardening** | Edit races, stale-result tests, crash handling, timeouts, empty retrieval | No stale or unapproved prompt can send under failure tests | 2.5h |
 
-**Phase 4 is the phase that answers the brief.** Phases 0 through 3 build a system that stores and retrieves; phase 4 is where retrieval starts changing control flow. If time compresses, cut hardening, not phase 4.
-
----
-
-## 5. Risks, ranked by likelihood of biting
-
-**1. Feature-space drift between gate and rescore.** The model is context-dependent, so the savings number is only meaningful if every non-prompt feature is byte-identical across the two calls. Anything that recomputes `ctx` inside `rescore`, or imputes post-execution features differently at the two call sites, produces confident wrong numbers with no error. Mitigation: assemble `ctx` exactly once in `gate`, carry it in state, and keep the parity test from Agent A green.
-
-**2. There is no accept/reject callback in MCP.** Nothing in the protocol notifies the server when a user takes a suggestion. Options in order of preference: (a) expose `record_outcome` as a tool and instruct Claude Code to call it through both the tool description and `CLAUDE.md`, which is explicit but not guaranteed; (b) infer acceptance by comparing the next prompt in the session against the suggested rewrite above a similarity threshold; (c) wrap scripted `claude -p` invocations when a guaranteed machine-readable feedback path is required. Implement (a), run (b) as a background heuristic so the derived tier still learns when (a) is skipped.
-
-**3. Vector index timing.** Atlas index builds and Automated Embeddings backfill take time and need documents present. Do the index and the backfill in phase 0 or early phase 1, even though retrieval is not wired until phase 3.
-
-**4. Empty derived tier.** Until `user_profile` and `block_library` have content, gate falls back to the hard floor, `allowed_types` is unfiltered, and EV ranking degrades to raw savings. That path needs to work, but the system is uninteresting there. Run `backfill.py` against real session history early so the derived tier starts populated.
-
-**5. Latency.** Vector search plus an OpenRouter round trip plus two inference calls can exceed 8 seconds. Batch the rescore call, cap candidates at 3, truncate retrieved examples to about 200 characters each, and return the gate node's cost band as a partial result immediately so something appears within roughly 300ms. The `deterministic` route should return in well under a second, which is also the clearest evidence that memory is doing work.
-
-**6. Scope creep.** Fireworks as a second gate-node model is explicitly optional in the architecture doc. Skip unless everything else is finished. Same for retraining the booster from logged outcomes: the calibration bias term already captures most of the value at a fraction of the cost.
+**Phase 1 proves the required user-safety flow; phase 4 proves that memory changes behavior.** Neither can be cut. Phases 0 through 3 establish contracts, cost prediction, and retrieval; phase 4 makes stored context alter routing and suggestions; phase 5 completes the real Claude handoff and learning loop. If time compresses, reduce optional MCP work before weakening the pre-send gate or behavior-changing reads.
 
 ---
 
-## 6. First three commits
+## 6. Risks, ranked by likelihood of biting
+
+**1. The prompt crosses the Claude boundary too early.** An MCP call chosen by
+Claude occurs after submission and cannot save the current turn. Mitigation: the
+wrapper owns the composer, the only Claude invocation is guarded by `ready`, and
+tests fail if first Enter starts a Claude subprocess.
+
+**2. A stale suggestion is accepted after an edit.** Async work can finish after
+the draft changes. Mitigation: tag every event with analysis ID, version, and
+hash; clear readiness synchronously on edit; verify the visible hash again on
+second Enter.
+
+**3. Feature-space drift between gate and rescore.** The model is context-dependent, so the savings number is only meaningful if every non-prompt feature is byte-identical across the two calls. Anything that recomputes `ctx` inside `rescore`, or imputes post-execution features differently at the two call sites, produces confident wrong numbers with no error. Mitigation: assemble `ctx` exactly once in `gate`, carry it in state, and keep the parity test from Agent A green.
+
+**4. Claude delivery is ambiguous after a transport failure.** Blind retry can
+duplicate a task. Mitigation: persist send attempt IDs, never retry automatically,
+show the failure, and require explicit confirmation. Where the CLI exposes a
+session/result ID, use it to reconcile before retrying.
+
+**5. Vector index timing.** Atlas index builds and Automated Embeddings backfill take time and need documents present. Do the index and the backfill in phase 0 or early phase 1, even though retrieval is not wired until phase 3.
+
+**6. Empty derived tier.** Until `user_profile` and `block_library` have content, gate falls back to the hard floor, `allowed_types` is unfiltered, and EV ranking degrades to raw savings. That path needs to work, but the system is uninteresting there. Run `backfill.py` against real session history early so the derived tier starts populated.
+
+**7. Latency.** Vector search plus an OpenRouter round trip plus two inference calls can exceed 8 seconds. Batch the rescore call, cap candidates at 3, truncate retrieved examples to about 200 characters each, and emit the gate node's cost band as a partial result immediately so something appears within roughly 300ms. The `deterministic` route should return in well under a second, which is also the clearest evidence that memory is doing work.
+
+**8. Scope creep.** Fireworks as a second gate-node model is explicitly optional in the architecture doc. Skip unless everything else is finished. Same for retraining the booster from logged outcomes: the calibration bias term already captures most of the value at a fraction of the cost.
+
+---
+
+## 7. First four commits
 
 1. `chore: repo skeleton, state schema, repo interface, feature buckets, stub fixtures`
 2. `feat: langgraph graph with five stubbed nodes and run_local script`
-3. `feat: expose TokenLens MCP tools to Claude Code via .mcp.json`
+3. `feat: pre-send state machine with fake optimizer and Claude client`
+4. `feat: display cost and require Accept or Skip before Claude handoff`
 
-After commit three the full path runs end to end on fake data, and every remaining task is replacing one stub with one real implementation. That property is worth protecting.
+After commit four the required two-Enter path runs end to end on fake data, and
+every remaining task replaces one stub without weakening the send invariant.
