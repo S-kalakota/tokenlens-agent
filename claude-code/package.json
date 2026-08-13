@@ -1,6 +1,6 @@
 {
   "name": "tokenlens-claude-code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude Code plugin that estimates a prompt's cost and pauses it until you confirm.",
   "private": true,
   "type": "module",

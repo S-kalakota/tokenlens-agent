@@ -1,7 +1,7 @@
 {
   "name": "tokenlens",
   "description": "Pauses each Claude Code prompt once to show what sending it would cost, then sends it unchanged when you confirm.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "S-kalakota"
   },

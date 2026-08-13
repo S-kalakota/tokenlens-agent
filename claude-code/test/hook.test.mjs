@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { FEATURE_ORDER } from '../src/features/validation.mjs';
 
 const GATE = fileURLToPath(new URL('../scripts/gate.mjs', import.meta.url));
 
@@ -16,8 +17,13 @@ beforeEach(async () => {
 /** Drives the hook exactly the way Claude Code does: JSON in, decision out. */
 function runHook(payload, { stdin } = {}) {
   return new Promise((resolve, reject) => {
+    const startedAt = performance.now();
     const child = spawn(process.execPath, [GATE], {
-      env: { ...process.env, TOKENLENS_HOME: home },
+      env: {
+        ...process.env,
+        CLAUDE_CONFIG_DIR: path.join(home, 'claude-config'),
+        TOKENLENS_HOME: home,
+      },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -34,6 +40,7 @@ function runHook(payload, { stdin } = {}) {
       const trimmed = stdout.trim();
       resolve({
         code,
+        durationMs: performance.now() - startedAt,
         stderr,
         stdout: trimmed,
         decision: trimmed === '' ? null : JSON.parse(trimmed),
@@ -66,12 +73,18 @@ describe('the gate as Claude Code runs it', () => {
     expect(second.code).toBe(0);
     expect(second.stdout).toBe('');
     expect(second.decision).toBeNull();
+
+    const log = await readFile(path.join(home, 'logs', 'ml-features.jsonl'), 'utf8');
+    expect(log.trim().split('\n')).toHaveLength(1);
   });
 
   it('pauses again after the prompt is edited', async () => {
     await runHook(submit('rewrite the billing module'));
     const edited = await runHook(submit('rewrite the billing module carefully'));
     expect(edited.decision.decision).toBe('block');
+
+    const log = await readFile(path.join(home, 'logs', 'ml-features.jsonl'), 'utf8');
+    expect(log.trim().split('\n')).toHaveLength(2);
   });
 
   it('keeps sessions independent', async () => {
@@ -119,16 +132,45 @@ describe('the gate as Claude Code runs it', () => {
     }
   });
 
-  it('never writes prompt text to disk', async () => {
-    const secret = 'my-very-secret-prompt-text';
-    await runHook(submit(secret));
+  it('stores prompt text only in the explicit feature log', async () => {
+    const prompt = 'my-feature-inspection-prompt';
+    await runHook(submit(prompt));
 
-    const { readdir, readFile } = await import('node:fs/promises');
     const pending = path.join(home, 'pending');
     const files = await readdir(pending);
     expect(files).toHaveLength(1);
     const stored = await readFile(path.join(pending, files[0]), 'utf8');
-    expect(stored).not.toContain(secret);
+    expect(stored).not.toContain(prompt);
     expect(JSON.parse(stored).fingerprint).toMatch(/^[a-f0-9]{64}$/);
+
+    const log = await readFile(path.join(home, 'logs', 'ml-features.jsonl'), 'utf8');
+    const record = JSON.parse(log.trim());
+    expect(record.prompt).toBe(prompt);
+    expect(Object.keys(record.features)).toEqual(FEATURE_ORDER);
+    expect(Object.keys(record.features)).toHaveLength(14);
+    expect(record).not.toHaveProperty('cwd');
+    expect(record).not.toHaveProperty('transcript_path');
+  });
+
+  it('fails open with clean stdout when pending state cannot be written', async () => {
+    const notDirectory = path.join(home, 'not-a-directory');
+    await writeFile(notDirectory, 'occupied', 'utf8');
+    home = notDirectory;
+
+    const result = await runHook(submit('this cannot persist pending state'));
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.decision).toBeNull();
+    expect(result.stderr).toContain('TokenLens skipped this prompt after an internal error.');
+  });
+
+  it('handles a literal @ mention fixture within Claude Code\'s hook timeout', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'tokenlens-hook-at-'));
+    await writeFile(path.join(workspace, 'parser.ts'), 'export const parser = true;\n', 'utf8');
+    const result = await runHook(
+      submit('Refactor @parser.ts and return a concise patch.', { cwd: workspace }),
+    );
+    expect(result.decision?.decision).toBe('block');
+    expect(result.durationMs).toBeLessThan(10_000);
   });
 });

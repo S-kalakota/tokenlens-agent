@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "fixture-session-uuid",
+  "transcript_path": "/Users/example/.claude/projects/-Users-example-repo/fixture-session-uuid.jsonl",
+  "cwd": "/Users/example/repo",
+  "permission_mode": "default",
+  "prompt": "Refactor @src/parser.ts and return a concise patch."
+}

@@ -19,6 +19,68 @@ describe('plugin manifest', () => {
     const manifest = await readJson('.claude-plugin/plugin.json');
     expect(manifest.defaultEnabled).toBe(false);
   });
+
+  it('keeps plugin, package, and marketplace versions aligned', async () => {
+    const plugin = await readJson('.claude-plugin/plugin.json');
+    const packageManifest = await readJson('package.json');
+    const marketplace = JSON.parse(
+      await readFile(path.resolve(root, '../.claude-plugin/marketplace.json'), 'utf8'),
+    );
+    expect(plugin.version).toBe('0.2.0');
+    expect(packageManifest.version).toBe(plugin.version);
+    expect(marketplace.plugins[0].version).toBe(plugin.version);
+  });
+});
+
+describe('ML feature contract assets', () => {
+  it('ships a plugin-local schema identical to the repository contract', async () => {
+    const local = await readFile(
+      path.join(root, 'contracts/ml-feature-payload.v1.schema.json'),
+      'utf8',
+    );
+    const canonical = await readFile(
+      path.resolve(root, '../contracts/ml-feature-payload.v1.schema.json'),
+      'utf8',
+    );
+    expect(local).toBe(canonical);
+  });
+
+  it('keeps schema feature names, categories and version aligned with the manifest', async () => {
+    const manifest = await readJson('model/feature-manifest.json');
+    const schema = await readJson('contracts/ml-feature-payload.v1.schema.json');
+    const featureSchema = schema.properties.features;
+
+    expect(schema.properties.schema_version.const).toBe(manifest.feature_schema_version);
+    expect(featureSchema.required).toEqual(manifest.feature_order);
+    expect(Object.keys(featureSchema.properties)).toEqual(manifest.feature_order);
+
+    for (const [name, vocabulary] of Object.entries(manifest.categorical_features)) {
+      expect(featureSchema.properties[name].enum).toEqual(vocabulary);
+    }
+
+    for (const name of Object.keys(manifest.numeric_features)) {
+      expect(featureSchema.properties[name].$ref).toBe('#/$defs/count');
+      expect(manifest.numeric_features[name].type).toBe(schema.$defs.count.type);
+      expect(manifest.numeric_features[name].minimum).toBe(schema.$defs.count.minimum);
+    }
+    expect(schema.properties.collection.properties.attachment_semantics.const).toBe(
+      manifest.attachment_semantics,
+    );
+  });
+
+  it('states the provisional fallback honestly until trained artifacts are supplied', async () => {
+    const manifest = await readJson('model/feature-manifest.json');
+    expect(manifest.compatibility_status).toBe(
+      'provisional-v1-awaiting-training-artifacts',
+    );
+    expect(manifest.inference).toEqual({
+      runtime: 'legacy-pricing-fallback',
+      preprocessing_artifact: null,
+      preprocessing_sha256: null,
+      model_artifact: null,
+      model_sha256: null,
+    });
+  });
 });
 
 describe('hooks.json', () => {

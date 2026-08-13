@@ -11,12 +11,11 @@ export function parseControl(prompt) {
 }
 
 /**
- * The whole decision, as one pure function.
- *
- * `pending` is the fingerprint stored when this session was last paused, and
- * `estimate` is the already-computed cost of sending `prompt` now.
+ * Runs every decision that does not need feature collection or prediction.
+ * Keeping this stage separate is important: repository scans and model calls
+ * must never run for control commands, disabled gates, or confirmations.
  */
-export function decide({ prompt, pending = null, config, estimate }) {
+export function preflight({ prompt, pending = null, config }) {
   const text = String(prompt ?? '');
   const trimmed = text.trim();
 
@@ -44,9 +43,28 @@ export function decide({ prompt, pending = null, config, estimate }) {
     return { action: 'allow', reason: 'confirmed', fingerprint: current };
   }
 
+  return { action: 'predict', fingerprint: current };
+}
+
+/** Applies the configured threshold after a prediction has been produced. */
+export function decidePrediction({ fingerprint: current, config, estimate }) {
+  if (!estimate || !Number.isFinite(estimate.totalUsd)) {
+    throw new TypeError('Prediction must contain a finite totalUsd');
+  }
+
   if (estimate.totalUsd < (config.thresholdUsd ?? 0)) {
     return { action: 'allow', reason: 'below-threshold', estimate };
   }
 
   return { action: 'block', reason: 'estimated', fingerprint: current, estimate };
+}
+
+/**
+ * Backwards-compatible one-shot decision helper used by callers that already
+ * have an estimate. New orchestration should call `preflight` first.
+ */
+export function decide({ prompt, pending = null, config, estimate }) {
+  const initial = preflight({ prompt, pending, config });
+  if (initial.action !== 'predict') return initial;
+  return decidePrediction({ fingerprint: initial.fingerprint, config, estimate });
 }

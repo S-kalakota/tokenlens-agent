@@ -63,17 +63,32 @@ misleading, because the dominant cost of a turn is that **the whole conversation
 is re-sent every time**. In the example above the 22-token prompt accounts for
 well under a cent of the $0.236; the 97k tokens of carried context is the bill.
 
-So TokenLens reads the session transcript for the real numbers:
+So TokenLens reads the session transcript for the real numbers. Before pricing,
+it also builds and validates a local, named 14-feature payload for the ML
+estimator boundary:
+
+- requested output format, task type, detail level, repository identity, and
+  model identity;
+- prompt, mentioned-code, relevant-code, requirement, question, and word
+  metrics;
+- bounded, cached repository line/file counts and accepted `@file` count.
+
+The payload is ordered only at the adapter boundary according to
+`model/feature-manifest.json`; prompt text, absolute paths, and source contents
+are not part of it and are never written to disk. The repository does not yet
+ship a trained preprocessing/model artifact, so the prediction boundary retains
+the deterministic price estimator below until that artifact is supplied.
 
 | Component | Priced at | Source |
 | --- | --- | --- |
 | Context re-sent | cache-read rate (0.1x input) | last assistant turn's usage |
-| This prompt | cache-write rate (1.25x input) | characters / 4 |
+| This prompt | cache-write rate (1.25x input) | manifest-pinned Unicode characters / 4 |
 | Assumed reply | output rate | `expectedOutputTokens` |
 
 The model is read from the transcript too, so an Opus session is priced as Opus.
 Before the first assistant turn there is no usage data yet, so context reads as
-`first turn, nothing carried in yet` and pricing falls back to Sonnet.
+`first turn, nothing carried in yet`; the model identity comes from Claude's
+configured model setting until the transcript records the exact model id.
 
 **This is an estimate, not a quote.** Two things in particular make the real
 number higher: token counts are approximated from character length, and one
@@ -108,6 +123,7 @@ claude plugin disable tokenlens@tokenlens
   "enabled": true,
   "expectedOutputTokens": 1200,
   "thresholdUsd": 0,
+  "featureLogging": true,
   "pricing": {
     "opus":   { "input": 15, "output": 75, "cacheWrite": 18.75, "cacheRead": 1.5 },
     "sonnet": { "input": 3,  "output": 15, "cacheWrite": 3.75,  "cacheRead": 0.3 },
@@ -119,16 +135,44 @@ claude plugin disable tokenlens@tokenlens
 - `thresholdUsd` — raise it above `0` to send cheap prompts on one Enter and
   only pause the expensive ones.
 - `expectedOutputTokens` — raise it if your turns typically run long.
+- `featureLogging` — while `true`, append each newly extracted prompt and its
+  14 features to the local JSONL inspection log. Set it to `false` to stop.
 - `pricing` — per-million-token list prices. Edit these when rates change or if
   your account is priced differently; anything you omit falls back to the
   built-in value.
 
 Set `TOKENLENS_HOME` to relocate the config and state directory.
 
+## Feature inspection log
+
+For temporary ML feature inspection, every new or edited prompt is appended to:
+
+```text
+~/.claude/tokenlens/logs/ml-features.jsonl
+```
+
+Watch it live while submitting prompts:
+
+```sh
+tail -F ~/.claude/tokenlens/logs/ml-features.jsonl | jq .
+```
+
+Each JSON line contains `logged_at`, `session_id`, `schema_version`, the exact
+submitted `prompt`, and the exactly 14 named properties under `features`.
+Unchanged Up-then-Enter confirmations, control commands, slash commands, empty
+prompts, and prompts submitted while TokenLens is disabled do not create a new
+entry. If `TOKENLENS_HOME` is set, the log is under that directory instead.
+
 ## Privacy and failure behavior
 
-- Prompt text is never written to disk. The pending state stores only a SHA-256
-  fingerprint, which is enough to prove the confirming prompt is unchanged.
+- While `featureLogging` is enabled, exact prompt text and the 14 extracted
+  features are deliberately written to the private inspection log above. The
+  log directory is mode `0700` and the log file is mode `0600`.
+- Pending confirmation state still stores only a SHA-256 fingerprint; source
+  contents, workspace paths, transcript paths, and repository URLs are not
+  written to the feature log.
+- Repository metrics are cached as counts and timestamps only. The cache never
+  stores repository paths or source contents.
 - Nothing leaves your machine. There is no network call anywhere in the gate.
 - The transcript is read locally, and only for token counts and the model name.
 - **Every failure path allows the prompt.** Unreadable config, corrupt state, a
@@ -145,16 +189,24 @@ npm test
 claude plugin validate ./
 ```
 
-The test suite covers the pricing math, the decision logic, transcript parsing,
-and the hook itself end to end — spawning `scripts/gate.mjs` the way Claude Code
-does, feeding it JSON on stdin and asserting on the decision it prints.
+The test suite covers all 14 collectors, schema and manifest validation, safe
+workspace traversal, cache invalidation, model-row ordering, pricing math,
+decision logic, transcript parsing, and the hook itself end to end — spawning
+`scripts/gate.mjs` the way Claude Code does, feeding it JSON on stdin and
+asserting on the decision it prints.
 
 | Path | Role |
 | --- | --- |
 | `scripts/gate.mjs` | Hook entry point. Reads stdin, prints the decision. |
 | `scripts/control.mjs` | `on`/`off`/`status` for the slash command and scripts. |
-| `src/gate.mjs` | The decision, as one pure function. |
+| `src/gate.mjs` | Cheap preflight and predicted-cost decisions. |
+| `src/hook.mjs` | Ordered hook orchestration and fail-open integration seam. |
 | `src/estimator.mjs` | Token and dollar math. |
+| `src/features/` | Deterministic collectors, validation, and repository cache. |
+| `src/feature-log.mjs` | Private JSONL prompt and 14-feature inspection log. |
+| `src/ml-feature-adapter.mjs` | Manifest-ordered, exactly-14-column model row. |
+| `model/feature-manifest.json` | Versioned proposed-v1 feature contract. |
+| `contracts/ml-feature-payload.v1.schema.json` | Canonical payload JSON Schema. |
 | `src/transcript.mjs` | Context size and model, read from the session log. |
 | `src/state.mjs` | Per-session pending fingerprints. |
 | `hooks/hooks.json` | Registers the `UserPromptSubmit` hook. |

@@ -23,13 +23,18 @@ export function approximateTokens(text) {
  */
 export function estimateTurn({
   prompt = '',
+  featureInputTokens,
   contextTokens = 0,
   model,
   expectedOutputTokens = 1200,
   pricing,
 } = {}) {
   const rates = ratesFor(model, pricing);
-  const { characters, tokens: promptTokens } = approximateTokens(prompt);
+  const measured = approximateTokens(prompt);
+  const promptTokens = Number.isSafeInteger(featureInputTokens) && featureInputTokens >= 0
+    ? featureInputTokens
+    : measured.tokens;
+  const { characters } = measured;
   const context = Math.max(0, Math.round(contextTokens) || 0);
 
   const cacheReadUsd = (context * rates.cacheRead) / PER_MILLION;

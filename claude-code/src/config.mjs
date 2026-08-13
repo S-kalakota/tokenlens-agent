@@ -10,6 +10,8 @@ export const CONFIG_DEFAULTS = {
   expectedOutputTokens: 1200,
   /** Prompts estimated below this dollar amount are sent without pausing. */
   thresholdUsd: 0,
+  /** Temporary inspection log containing exact prompts and all 14 features. */
+  featureLogging: true,
   /** Per-million-token overrides, merged over the built-in list prices. */
   pricing: DEFAULT_PRICING,
 };
