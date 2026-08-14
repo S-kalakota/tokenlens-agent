@@ -1,66 +1,111 @@
-# TokenLens Agent
+# TokenLens
 
-TokenLens Agent is a persistent pre-send prompt optimizer for Claude Code. It
-estimates a draft's token cost, retrieves useful outcomes from prior sessions,
-and proposes and rescores up to three rewrites. The target product flow runs in
-the native `claude` composer: first Enter analyzes, Accept or Skip freezes a
-choice, and second Enter releases that prompt exactly once.
+<p align="center">
+  <strong>See the cost of an AI coding prompt before it runs, then make the prompt better.</strong>
+</p>
 
-It is a companion service: it does not import or require another TokenLens
-runtime. The repository now vendors the trained 12,052-row output-token model
-from `nkanthed06/Token_Counter`; committed fixtures still provide a complete
-offline demo.
+<p align="center">
+  <a href="https://www.loom.com/share/be931c5e8473415e87eecf0c252cb016"><strong>▶ Watch the demo</strong></a>
+</p>
 
-## Native Claude Code status
+TokenLens is a local-first toolkit for estimating and reducing the cost of AI
+coding prompts. It brings the estimator clients, Claude Code integration,
+optimization agent, persistent memory, and model boundary into one repository.
 
-The reusable optimization, MongoDB, OpenRouter, model, MCP, and feedback layers
-are implemented. `claude-code/` now contains the capability-gated native bridge,
-structured UI contract, plugin scaffold, and fake-host safety suite.
+The project supports two complementary workflows:
 
-Stock Claude Code 2.1.231 does not expose the composer API required to attach the
-bridge. Its public `UserPromptSubmit` hook erases blocked prompts and cannot
-preserve or replace the composer, render selectable controls, observe edits or
-an empty second Enter, or release a stored rewrite. The plugin therefore fails
-its compatibility gate instead of pretending a hook implements the requested
-flow.
+- **Estimate** — inspect the likely usage or cost of a prompt before sending it
+  from Cursor or Claude Code.
+- **Optimize** — retrieve useful patterns from previous sessions, generate a
+  small set of clearer rewrites, rescore them, and let the user choose what to
+  send.
 
-Check the installed host:
+## What we built
 
-```sh
-python3 claude-code/compatibility.py --json
-claude plugin validate ./claude-code
+- A Cursor/VS Code extension with explicit clipboard, selection, and Quick Input
+  capture; endpoint consent; cancellation; and a compact status-bar result.
+- A Claude Code estimator plugin that reads the local transcript context,
+  extracts a versioned feature payload, predicts reply length through a local
+  inference boundary, and pauses expensive prompts for confirmation.
+- A Python optimization service that runs a `gate → retrieve → reason → rescore
+  → package` graph and returns ranked prompt rewrites.
+- MongoDB-backed session memory, recurring-block detection, outcome feedback,
+  and graph checkpoints.
+- A versioned, checksum-validated output-length model with an explicit fallback
+  path when the artifact or inference service is unavailable.
+- Offline fixtures and automated test suites for the agent, native hook, Cursor
+  extension, and Claude Code plugin.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User draft] --> S{Client surface}
+
+    S -->|Cursor| C[Cursor extension]
+    C --> CC[Explicit capture + consent]
+    CC --> CE[Mock or HTTP estimator]
+    CE --> UI[Usage / cost status]
+
+    S -->|Claude Code| H[UserPromptSubmit gate]
+    H --> CT[Transcript context]
+    H --> FX[Feature extraction]
+    CT --> CP[Cost projection]
+    FX --> ML[Reply-length inference]
+    ML --> CP
+    CP --> UI
+
+    H --> OS[Python optimization service]
+    OS --> G[LangGraph orchestrator]
+    G --> GA[Gate]
+    GA --> GR[Retrieve]
+    GR --> GN[Reason]
+    GN --> GS[Rescore]
+    GS --> GP[Package suggestions]
+
+    GR <--> DB[(MongoDB memory)]
+    GN --> OR[OpenRouter models]
+    GA --> OM[Output-length model]
+    GS --> OM
+    GP --> R[Accept, edit, or skip]
 ```
 
-The first command currently exits 1 by design and lists the missing native host
-capabilities. The existing `tokenlens-claude` command remains a legacy
-development harness for exercising the two-Enter state and backend; it is not
-the requested native Claude Code UI.
+The estimator and optimizer are intentionally separate boundaries. Estimation
+can stay fully local or call a configured endpoint. Optimization adds retrieval
+and rewrite generation, but the user remains in control of the final text.
 
-### Temporary Claude Code display-only mode
+### Request lifecycle
 
-For now, Claude Code can run the real analysis and display suggested prompts
-without changing the composer. Add this to `.env`:
+1. A client captures an exact draft and assigns it a stable identity.
+2. TokenLens estimates prompt, carried-context, and likely reply cost.
+3. The optimization graph decides whether a rewrite is worthwhile.
+4. Relevant prior outcomes and recurring instructions are retrieved from
+   MongoDB.
+5. Candidate rewrites are generated, rescored with the same frozen prediction
+   context, and ranked by expected savings and usefulness.
+6. The user accepts a suggestion, edits it, or keeps the original. Any edit
+   invalidates stale analysis before a prompt can be released.
 
-```sh
-TOKENLENS_NATIVE_HOOK_APPROXIMATION=1
-```
+## Repository map
 
-Then launch from this repository (not `tokenlens-claude`):
+| Path | Responsibility |
+| --- | --- |
+| [`agent/`](./agent) | LangGraph nodes and state for gate, retrieval, reasoning, rescoring, and packaging. |
+| [`optimization_service.py`](./optimization_service.py) | Streaming service boundary used by hooks and MCP. |
+| [`model/`](./model) | Feature mapping, prediction adapters, versioned artifact, and fallbacks. |
+| [`db/`](./db) | MongoDB repositories, profiles, recurring blocks, indexes, and backfill tools. |
+| [`claude-code/`](./claude-code) | Python optimizer hook, compatibility gate, renderer, and native bridge contract. |
+| [`apps/tokenlens-estimator/`](./apps/tokenlens-estimator) | Cursor extension plus the standalone JavaScript Claude Code estimator plugin. |
+| [`cli/`](./cli) | Legacy terminal harness for exercising the two-stage workflow. |
+| [`tests/`](./tests) | Agent, service, database, model, MCP, and hook tests. |
 
-```sh
-claude --plugin-dir ./claude-code \
-  --settings '{"enabledPlugins":{"tokenlens@tokenlens":false}}'
-```
+Detailed design constraints and acceptance criteria live in
+[`tokenlens-agent-architecture.md`](./tokenlens-agent-architecture.md) and
+[`tokenlens-build-plan.md`](./tokenlens-build-plan.md).
 
-First Enter analyzes and displays suggestions. Since public Claude Code erases
-the blocked input, press Up + Enter to submit the original prompt unchanged.
-To use a suggestion, copy or edit it into the composer, press Enter to analyze
-that new wording, then Up + Enter sends it. This is a temporary compatibility
-mode, not the eventual native selection-and-replace workflow.
+## Quick start: optimization agent
 
-## Legacy harness (offline fixture mode)
-
-Python 3.11 or newer is required. From this directory:
+Python 3.11 or newer is required.
 
 ```sh
 python3 -m venv .venv
@@ -70,57 +115,85 @@ cp .env.example .env
 TOKENLENS_STUB=1 tokenlens-claude
 ```
 
-The interaction is deliberately two-stage:
-
-1. Enter freezes and analyzes the current draft. It cannot launch Claude.
-2. Choose `1`, `2`, `3`, or `S`. This makes the selected prompt ready.
-3. Press Enter again to send exactly that frozen prompt to Claude.
-
-Any edit after analysis invalidates the result and requires a new first Enter.
-`Ctrl-J` inserts a newline in the terminal composer; Enter performs the
-state-dependent action.
-
-Run the optimization graph without Claude:
+Fixture mode runs the complete graph without MongoDB, OpenRouter, or another
+TokenLens process. You can also exercise the graph directly:
 
 ```sh
 TOKENLENS_STUB=1 python3 -m scripts.run_local \
   "Review these repeated logs and return only the root cause and patch."
 ```
 
-Run all tests:
+## Quick start: Cursor extension
 
 ```sh
-TOKENLENS_STUB=1 python3 -m unittest discover -s tests -v
+cd apps/tokenlens-estimator
+npm install
+npm run validate
+```
+
+Open that directory in Cursor, choose **Run → Start Debugging**, and select
+**Run TokenLens in Cursor**. The Extension Development Host exposes commands for
+clipboard text, an editor selection, or temporary Quick Input. Captured text is
+sent only after explicit invocation, and endpoint mode asks for consent on every
+request.
+
+The extension starts with deterministic local fixtures. To connect an estimator,
+set `tokenlens.estimatorMode` to `endpoint` and configure the HTTPS endpoint,
+model, and access mode in TokenLens settings. Loopback HTTP is accepted for local
+development.
+
+## Quick start: Claude Code estimator
+
+The standalone estimator plugin lives inside the imported app:
+
+```sh
+claude plugin marketplace add ./apps/tokenlens-estimator
+claude plugin install tokenlens@tokenlens
+claude plugin enable tokenlens@tokenlens
+```
+
+Its public `UserPromptSubmit` hook pauses a draft, displays the estimate, and
+asks for confirmation. Claude Code currently removes a blocked draft from the
+composer, so confirmation is **Up, then Enter**. The full feature contract,
+configuration, and failure behavior are documented in
+[`apps/tokenlens-estimator/claude-code/README.md`](./apps/tokenlens-estimator/claude-code/README.md).
+
+## Claude Code optimizer status
+
+The reusable graph, memory, model, MCP, feedback, and display-only hook layers
+are implemented. The target optimizer UX keeps a selected rewrite in Claude
+Code's native composer and releases it on a second Enter.
+
+Stock Claude Code does not currently expose the composer APIs needed to preserve
+or replace a blocked draft, render selectable controls, observe edits, and
+release the selected text exactly once. The optimizer bridge therefore checks
+host capabilities and fails clearly instead of claiming the native workflow is
+available.
+
+You can inspect compatibility and run the temporary display-only integration:
+
+```sh
+python3 claude-code/compatibility.py --json
+TOKENLENS_NATIVE_HOOK_APPROXIMATION=1 \
+  claude --plugin-dir ./claude-code \
+  --settings '{"enabledPlugins":{"tokenlens@tokenlens":false}}'
 ```
 
 ## Production configuration
 
-Copy `.env.example` to the ignored `.env` file and configure:
+Copy [`.env.example`](./.env.example) to the ignored `.env` file. The main
+settings are:
 
-- `MONGODB_URI` for Atlas memory and LangGraph checkpoints.
-- `OPENROUTER_API_KEY`, `TOKENLENS_REASON_CHEAP_MODEL`, and
-  `TOKENLENS_REASON_STRONG_MODEL` for rewrite generation. Similar accepted
-  savings and the current cost shape select between them at
-  `TOKENLENS_REASON_STRONG_UPSIDE_TOKENS` (default 400 tokens). Setting the
-  legacy `TOKENLENS_REASON_MODEL` forces one model and disables this routing.
-- `TOKENLENS_TARGET_MODEL=claude-haiku-4-5` or `claude-sonnet-5`, the two model
-  families represented in the vendored estimator's training data. Other model
-  IDs use the explicit 1,200-output-token assumption.
-- `CLAUDE_BIN` if the Claude Code executable is not named `claude`.
-- `TOKENLENS_STUB=0` to activate real adapters.
+- `MONGODB_URI` for session memory, retrieval, profiles, and checkpoints.
+- `OPENROUTER_API_KEY` and the reason-model settings for candidate generation.
+- `TOKENLENS_TARGET_MODEL` for the configured prediction family.
+- `TOKENLENS_STUB=0` to enable production adapters.
+- `TOKENLENS_RETAIN_RAW_PROMPTS=1` only when raw draft retention is acceptable.
 
-The legacy harness applies a child-process-only Claude settings override that
-disables the separately installed `tokenlens@tokenlens` `UserPromptSubmit` gate.
-This prevents an already approved harness prompt from being gated twice while
-keeping the user's auth, model setting, project instructions, sessions, and
-other plugins.
-
-`model/model_combined.joblib` is checksum-validated and loaded once per process.
-Its exact 14-feature mapping, empirical interval, upstream commits, 1,200-token
-fallback, and 590-token validation fixture are recorded in
-`model/output_model_manifest.json`. If that artifact cannot load, setting
-`TOKENLENS_MODEL_FALLBACK=heuristic` explicitly enables the older deterministic
-development estimate.
+Real mode fails closed if the graph checkpointer is unavailable, and outcome
+writes require a transaction-capable MongoDB deployment. Raw prompt retention
+is off by default; hashes and derived features remain available for stale-result
+protection.
 
 Create collections and indexes, then backfill exported JSON or JSONL history:
 
@@ -129,42 +202,38 @@ TOKENLENS_STUB=0 python3 -m db.backfill exported-sessions.jsonl \
   --ensure-indexes
 ```
 
-The Atlas Automated Embedding/vector index may take time to become queryable.
-Application collections are `draft_analyses`, `sessions`, `prompt_embeddings`,
-`suggestions`, `user_profile`, `block_library`, and `checkpoints`.
-`MongoDBSaver` also owns its internal `checkpoint_writes` collection.
-Both checkpoint collections expire after 24 hours. Real mode fails closed if
-LangGraph or the MongoDB checkpointer is unavailable; fixture mode alone may use
-the dependency-free in-process graph. Outcome feedback also requires a
-transaction-capable MongoDB deployment so suggestion, profile, and recurring-
-block memory cannot be partially committed.
+## Development
 
-Raw draft retention is off by default. Set `TOKENLENS_RETAIN_RAW_PROMPTS=1` only
-when retaining draft text is acceptable; exact hashes and derived features are
-still kept for stale-result protection.
-
-## Optional MCP diagnostics
-
-`.mcp.json` registers a project-scoped stdio server. It exposes
-`optimize_prompt` and `record_outcome` for explicit diagnostics of text already
-in a conversation. MCP is not a pre-send interceptor and cannot substitute for
-the native composer bridge.
-
-Verify the server with:
+Run the Python checks from the repository root:
 
 ```sh
-claude mcp list
-claude mcp get tokenlens
+TOKENLENS_STUB=1 python3 -m pytest
+python3 -m ruff check .
 ```
 
-## Architecture
+Run both TypeScript/JavaScript suites:
 
-The graph is `gate -> retrieve -> reason -> rescore -> package`, with conditional
-`skip` and deterministic recurring-block routes. MongoDB memory changes routing,
-allowed rewrite types, calibration, and expected-value ranking; it is not merely
-pasted into an LLM prompt. `MongoDBSaver` checkpoints graph state by optimization
-session, while the native state contract intentionally never restores `ready`
-send permission after a restart.
+```sh
+cd apps/tokenlens-estimator
+npm run validate
+npm --prefix claude-code test
+```
 
-The canonical design and acceptance criteria are in
-`tokenlens-agent-architecture.md` and `tokenlens-build-plan.md`.
+## Privacy and safety
+
+- Secrets live in the ignored `.env`; the committed example contains names and
+  placeholders only.
+- Cursor prompt capture is explicit and endpoint transmission requires
+  per-request approval.
+- The Python optimizer does not retain raw drafts unless explicitly configured.
+- Model payloads use derived features at the inference boundary rather than
+  prompt text or source contents.
+- Stale hashes, changed drafts, and failed sends cannot silently reuse an old
+  approval.
+- The JavaScript estimator is fail-open so an estimation failure cannot lock a
+  user out of Claude Code; the optimizer is fail-closed before any protected
+  send.
+
+---
+
+**Demo:** [Watch TokenLens in action](https://www.loom.com/share/be931c5e8473415e87eecf0c252cb016)
