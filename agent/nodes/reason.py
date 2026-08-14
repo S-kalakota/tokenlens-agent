@@ -387,7 +387,8 @@ def call_reasoning_model(
 
     system_message = (
         "You reduce prompt token cost without dropping objectives or constraints. "
-        "Return only a JSON array with up to three objects. Each object must have "
+        "Return only a JSON array with three distinct objects whenever possible. "
+        "Each object must have "
         "exactly these string fields: rewrite, rationale, suggestion_type. "
         f"Allowed suggestion_type values: {', '.join(allowed_types)}.\n\n"
         "Grounding from this user's accepted, positive-savings history:\n"

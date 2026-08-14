@@ -27,8 +27,9 @@ user's intent.
 
 ## Development
 
-- Keep MongoDB access inside `db/` and LightGBM loading inside
-  `model/predictor.py`.
+- Keep MongoDB access inside `db/`. The checksum-validated scikit-learn output
+  model and its 14-feature adapter stay inside `model/`; callers use only
+  `model.predictor.predict` or `predict_many`.
 - Keep secrets in `.env`; never add credentials to `.mcp.json`, `CLAUDE.md`,
   source files, tests, or commits.
 - Run `TOKENLENS_STUB=1 python3 -m unittest discover -s tests` after changes.

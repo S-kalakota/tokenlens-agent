@@ -1,0 +1,20 @@
+{
+  "model_version": "tokenlens-cost-model-v1-combined",
+  "artifact": "model_combined.joblib",
+  "sha256": "9275c3ad424dcbfc12c5faeb09a4379014e73bf7bb287fdc0da01bd9ffe05c1c",
+  "target_transform": "log1p",
+  "trained_on_rows": 12052,
+  "trained_on_models": ["claude-haiku-4-5", "claude-sonnet-5"],
+  "fallback_output_tokens": 1200,
+  "hardcoded_fixture": {
+    "contains": ["assert-on-string-literal", "empty literals"],
+    "output_tokens": 590,
+    "interval_80": [324, 1062]
+  },
+  "source": {
+    "model_repository": "https://github.com/nkanthed06/Token_Counter",
+    "model_commit": "9984b40ba6b9a4d1c30408b0fa31c106c30f29e3",
+    "adapter_repository": "https://github.com/nkanthed06/Claude_Token_Counter",
+    "adapter_commit": "84df0019a537f0324295e31d0722622a922b583f"
+  }
+}

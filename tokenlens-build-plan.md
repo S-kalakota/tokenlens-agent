@@ -10,7 +10,9 @@ Four organizing ideas:
    cost/suggestions -> Accept or Skip -> second Enter -> fake Claude response)
    runs end to end before any component is real. Then stubs get replaced one at
    a time.
-3. **Companion, not coupling.** The agent is deployed beside TokenLens, not inside it. It owns its process, MongoDB collections, MCP surface, and configuration. TokenLens may later supply a booster artifact and exported session history, but neither codebase imports the other and the companion remains runnable with fixtures when those inputs are absent.
+3. **Companion, not coupling.** The agent owns its process, MongoDB collections,
+MCP surface, and configuration. It vendors a checksum-pinned trained output-token
+artifact and remains runnable with fixtures when external services are absent.
 4. **No approval, no send.** Only the native composer bridge may release a prompt
    to Claude, and only a `ready` draft created by an explicit Accept or Skip
    decision may cross that boundary. MCP is optional and cannot replace the
@@ -179,8 +181,10 @@ tokenlens-agent/
     nodes/{gate,retrieve,reason,rescore,package}.py
   model/
     featurizer.py
+    output_estimator.py # trained 14-feature scikit-learn adapter
     predictor.py
-    booster.txt          # existing trained LightGBM model
+    model_combined.joblib
+    output_model_manifest.json
   db/
     client.py
     repo.py              # every Mongo read/write lives here, nowhere else
@@ -196,7 +200,8 @@ tokenlens-agent/
   .env.example
 ```
 
-Rule: **no module talks to Mongo except `db/`, and no module loads the booster except `model/predictor.py`.** Everything else imports a function. This is what makes the parallel split safe.
+Rule: **no module talks to Mongo except `db/`, and no module loads a model
+artifact except `model/`.** Everything else imports a prediction function.
 
 ### 3.2 The contracts
 
@@ -333,13 +338,19 @@ Each block is sized for its own Claude Code session, with the contracts file in 
 **Must not touch:** `agent/`, `db/`, `mcp_server.py`
 
 **Job:**
-1. Load the booster once at import, cached at module level. Cold-loading per call is visible latency.
-2. Split the training feature list into three buckets and write the split down: prompt-derived (length, line count, fenced-block count, duplicate-line ratio, repeated-block token share, path-token count, whitespace ratio), context-derived (target model, project, turn index, recent cost stats), and post-execution-only. Bucket three gets imputed from `ctx`, identically at both call sites.
-3. Implement `predict_many` as a genuine batch call. Rescore passes 2 to 4 candidates and one batched inference is meaningfully faster than a loop.
-4. Apply `ctx["calibration_bias"]` as a post-prediction correction, and keep it outside the booster so it can be updated per outcome without retraining.
+1. Load and checksum-validate the vendored scikit-learn pipeline once at import.
+2. Preserve the trained 14-feature contract: four categoricals plus detail,
+   prompt/attached/relevant tokens, structure counts, repository size, and file
+   attachments. Build the same contract for gate and rescoring.
+3. Implement `predict_many` as one DataFrame and one pipeline call. Rescore
+   passes 2 to 4 candidates and must not loop over model inference.
+4. Invert `log1p` with `expm1`, apply the empirical interval, and then apply
+   `ctx["calibration_bias"]` outside the artifact.
 5. Assert feature-vector parity: a test that builds the vector for the same prompt under the same `ctx` twice through both entry points and asserts equality. This is the counterfactual guarantee, and it is worth an explicit test because a silent mismatch produces plausible-looking wrong numbers.
 
-**Done when:** a test asserts that a prompt containing an obviously duplicated 200-line block scores higher than its deduplicated version under identical `ctx`, and that `predict` returns in under 50ms warm.
+**Done when:** the artifact checksum and feature order are tested, one batch call
+is asserted, supported prompts use the model, unsupported models use the visible
+1,200-token fallback, and the upstream 590-token fixture is exact.
 
 ---
 
@@ -503,7 +514,10 @@ exposes a turn/result ID, use it to reconcile before retrying.
 
 **8. Latency.** Vector search plus an OpenRouter round trip plus two inference calls can exceed 8 seconds. Batch the rescore call, cap candidates at 3, truncate retrieved examples to about 200 characters each, and emit the gate node's cost band as a partial result immediately so something appears within roughly 300ms. The `deterministic` route should return in well under a second, which is also the clearest evidence that memory is doing work.
 
-**9. Scope creep.** Fireworks as a second gate-node model is explicitly optional in the architecture doc. Skip unless everything else is finished. Same for retraining the booster from logged outcomes: the calibration bias term already captures most of the value at a fraction of the cost.
+**9. Scope creep.** Fireworks as a second gate-node model is explicitly optional
+in the architecture doc. Skip unless everything else is finished. The same
+applies to retraining the vendored estimator from logged outcomes: calibration
+bias captures most of that value at a fraction of the cost.
 
 ---
 

@@ -84,8 +84,9 @@ class PredictorTests(unittest.TestCase):
 
     def test_stub_mode_preserves_committed_fixture_and_skips_booster(self) -> None:
         booster = CapturingBooster()
-        with patch.dict(os.environ, {"TOKENLENS_STUB": "1"}, clear=False), patch.object(
-            predictor, "_BOOSTER", booster
+        with (
+            patch.dict(os.environ, {"TOKENLENS_STUB": "1"}, clear=False),
+            patch.object(predictor, "_BOOSTER", booster),
         ):
             single = predictor.predict("one", prediction_context())
             batch = predictor.predict_many(["one", "two"], prediction_context())
@@ -173,8 +174,10 @@ class PredictorTests(unittest.TestCase):
             "TOKENLENS_STUB": "0",
             predictor.HEURISTIC_FALLBACK_ENV: "heuristic",
         }
-        with patch.dict(os.environ, environment, clear=False), patch.object(
-            predictor, "_BOOSTER", None
+        with (
+            patch.dict(os.environ, environment, clear=False),
+            patch.object(predictor, "_BOOSTER", None),
+            patch.object(predictor.output_estimator, "_MODEL", None),
         ):
             original = predictor.predict(duplicated, prediction_context())
             rewrite = predictor.predict(deduplicated, prediction_context())
@@ -189,17 +192,18 @@ class PredictorTests(unittest.TestCase):
             ],
         )
 
-    def test_missing_real_model_fails_explicitly(self) -> None:
-        with self.real_environment(), patch.object(
-            predictor, "_BOOSTER", None
-        ), patch.object(
-            predictor, "_BOOSTER_UNAVAILABLE_REASON", "test artifact is unavailable"
+    def test_missing_real_model_uses_explicit_fixed_output_fallback(self) -> None:
+        with (
+            self.real_environment(),
+            patch.object(predictor, "_BOOSTER", None),
+            patch.object(predictor.output_estimator, "_MODEL", None),
         ):
-            with self.assertRaisesRegex(
-                predictor.PredictorUnavailableError,
-                "test artifact is unavailable",
-            ):
-                predictor.predict("do not fake this score", prediction_context())
+            result = predictor.predict(
+                "use the documented output assumption", prediction_context()
+            )
+
+        self.assertEqual(result["p50"], 1200.0)
+        self.assertEqual(result["source"], "fixed_output_fallback")
 
     def test_warm_prediction_returns_under_fifty_milliseconds(self) -> None:
         block = "\n".join(f"line {index}" for index in range(200))
@@ -208,8 +212,10 @@ class PredictorTests(unittest.TestCase):
             "TOKENLENS_STUB": "0",
             predictor.HEURISTIC_FALLBACK_ENV: "heuristic",
         }
-        with patch.dict(os.environ, environment, clear=False), patch.object(
-            predictor, "_BOOSTER", None
+        with (
+            patch.dict(os.environ, environment, clear=False),
+            patch.object(predictor, "_BOOSTER", None),
+            patch.object(predictor.output_estimator, "_MODEL", None),
         ):
             predictor.predict(prompt, prediction_context())  # warm caches/imports
             started = time.perf_counter()

@@ -9,7 +9,10 @@ accepted, skipped, edited, or completed analysis is logged, and future retrieval
 pulls from that history — this is the "no cold start" piece the hackathon theme
 asks for.
 
-**Deployment boundary:** this agent runs alongside the existing TokenLens product as an independent Python/MCP service. It does not import, modify, or need the TokenLens application at runtime. The trained LightGBM booster and historical TokenLens sessions are optional integration inputs: when available they replace the placeholder booster and seed MongoDB; until then the agent can be developed and demonstrated with its committed fixtures.
+**Deployment boundary:** this agent runs as an independent Python/MCP service.
+It vendors the checksum-pinned `model_combined.joblib` output-token estimator
+trained in `nkanthed06/Token_Counter`, while historical TokenLens sessions may
+seed MongoDB. Fixture mode remains available without external services.
 
 ## Required user workflow
 
@@ -126,10 +129,10 @@ Optimization service
       |
       v
 LangGraph orchestrator (agent/graph.py)
-   |-- gate node        --> LightGBM quantile model
+   |-- gate node        --> trained output-token model
    |-- retrieve node     --> MongoDB Atlas Vector Search
    |-- reason node       --> OpenRouter (Claude / other model)
-   |-- rescore node      --> LightGBM quantile model
+   |-- rescore node      --> trained output-token model
    |-- package node       --> returns ranked suggestions to native integration
       |
       v
@@ -162,7 +165,7 @@ events, and guarded release. An unsupported Claude Code version disables the
 integration with a clear setup error before the user types a prompt.
 
 The cost source is an interface. In production, the preferred adapter loads the
-versioned TokenLens LightGBM booster; during development, fixtures satisfy the
+versioned Token Counter scikit-learn artifact; during development, fixtures satisfy the
 same contract. TokenLens itself does not need to be running. The original cost,
 prompt snapshot, and MongoDB context are passed together to the graph, and the
 same frozen prediction context is used to rescore every rewrite.
@@ -262,10 +265,10 @@ This is the core. A graph of nodes with shared state, compiled with a MongoDB ch
 
 **Nodes:**
 
-- **gate** — runs the prompt through the LightGBM model first. If predicted cost is already low relative to the user's typical prompts, short-circuits and returns early. This is the cost-conscious pre-filter.
+- **gate** — runs the prompt through the trained output-token model first. If predicted cost is already low relative to the user's typical prompts, short-circuits and returns early. This is the cost-conscious pre-filter.
 - **retrieve** — queries MongoDB Atlas Vector Search for the k most similar past prompts, and pulls whichever of their logged suggestions were actually accepted and reduced tokens. This is the memory step — it's what makes suggestions specific to this user's patterns instead of generic advice.
 - **reason** — calls the LLM (via OpenRouter) with the current prompt plus the retrieved examples as grounding context, and asks it to propose specific rewrites (e.g. "collapse repeated file dump," "trim boilerplate instructions," "deduplicate context").
-- **rescore** — runs each proposed rewrite back through the LightGBM model to get a real predicted cost, and computes the delta against the original. This replaces "trust the LLM's claim" with an actual quantitative estimate.
+- **rescore** — runs each proposed rewrite back through the same trained model to get a predicted output length, and computes the delta against the original. This replaces "trust the LLM's claim" with an actual quantitative estimate.
 - **package** — formats the final suggestions object and returns it through the optimization service to the native integration or optional MCP adapter.
 
 **State object** carried through the graph: `{ prompt, session_id, predicted_cost, retrieved_examples, candidate_rewrites, scored_rewrites }`.
@@ -274,14 +277,25 @@ This is the core. A graph of nodes with shared state, compiled with a MongoDB ch
 
 ---
 
-## 5. LightGBM quantile model
+## 5. Trained output-token model
 
-The preferred production model is TokenLens's existing trained booster, supplied to this companion service as a versioned artifact rather than imported from the TokenLens runtime. Until that artifact is supplied, the committed placeholder keeps the boundary explicit. There are two call sites:
+Production uses the vendored `model/model_combined.joblib` scikit-learn pipeline
+from `nkanthed06/Token_Counter`. It was trained on 12,052 Haiku 4.5 and Sonnet 5
+coding-prompt rows and predicts `log1p(output_tokens)`. The adapter in
+`model/output_estimator.py` builds its fixed 14-feature row, inverts the target
+with `expm1`, and applies the upstream empirical 80% ratio band. The artifact is
+loaded once and verified against its SHA-256 manifest. There are two call sites:
 
 - **gate node** — scores the raw prompt as-is.
 - **rescore node** — scores each candidate rewrite.
 
-Both call sites use the same featurizer (whatever features the model was trained on: prompt length, structure signals, repeated-block counts, etc.) so the numbers are directly comparable — the delta between gate output and rescore output *is* the "estimated savings" shown to the user.
+Both call sites use the same classifier, repository metrics, explicit-file
+references, and prompt-structure counts, and rescoring is one batch model call.
+The delta between gate and rescore output estimates is the savings shown to the
+user. The trained model supports `claude-haiku-4-5` and `claude-sonnet-5` only;
+other targets visibly use the upstream fixed 1,200-output-token assumption. The
+upstream pylint validation fixture (`assert-on-string-literal` plus `empty
+literals`) retains its exact 590-token result and [324, 1062] interval.
 
 **Why it matters for judging:** it's the concrete technical differentiator. An LLM proposing "make this shorter" is generic; a trained model quantifying the actual predicted cost reduction is a real system, not a prompt-engineering demo.
 

@@ -26,6 +26,18 @@ class CostBand(TypedDict):
     p10: float
     p50: float
     p90: float
+    source: NotRequired[
+        Literal[
+            "trained_output_model",
+            "fixed_output_fallback",
+            "hardcoded_fixture",
+            "legacy_lightgbm",
+            "heuristic",
+            "stub",
+        ]
+    ]
+    model_version: NotRequired[str]
+    target_model: NotRequired[str]
 
 
 class PredictionContext(TypedDict):

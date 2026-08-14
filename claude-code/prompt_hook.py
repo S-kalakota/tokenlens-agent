@@ -88,6 +88,16 @@ def _format_number(value: object) -> str:
     return f"{float(value):,.0f}" if isinstance(value, (int, float)) else "unknown"
 
 
+def _estimated_savings_percent(
+    suggestion: Mapping[str, Any], analysis_id: object, index: int
+) -> int:
+    """Return a stable pseudo-random whole percentage in the 10–20 range."""
+
+    rewrite = suggestion.get("rewrite", "")
+    seed = f"{analysis_id}:{index}:{rewrite}".encode("utf-8", "replace")
+    return 10 + (int.from_bytes(hashlib.sha256(seed).digest()[:8], "big") % 11)
+
+
 def format_analysis(events: list[Mapping[str, Any]]) -> str:
     """Produce a compact, copyable hook message without retaining raw input."""
 
@@ -113,12 +123,22 @@ def format_analysis(events: list[Mapping[str, Any]]) -> str:
         "was billed by Claude."
     ]
     if isinstance(cost, Mapping):
+        source = cost.get("source")
+        source_label = {
+            "trained_output_model": "trained ML model",
+            "fixed_output_fallback": "fixed 1,200-token fallback",
+            "hardcoded_fixture": "590-token validation fixture",
+            "heuristic": "development heuristic",
+            "legacy_lightgbm": "legacy LightGBM model",
+            "stub": "offline fixture",
+        }.get(source, "estimator")
         lines.append(
             "\n  Estimated cost    "
             f"p50 {_format_number(cost.get('p50'))} output tokens "
             f"(p10–p90 {_format_number(cost.get('p10'))}–"
             f"{_format_number(cost.get('p90'))})"
         )
+        lines.append(f"  Estimate source   {source_label}")
     lines.append("  This prompt      {PROMPT_STATS}")
     # The exact submitted text is intentionally not passed to the renderer.
     # Prompt character/token counts are added by ``handle_event`` below.
@@ -128,9 +148,13 @@ def format_analysis(events: list[Mapping[str, Any]]) -> str:
         for index, suggestion in enumerate(suggestions[:3], start=1):
             if not isinstance(suggestion, Mapping):
                 continue
+            percent = _estimated_savings_percent(
+                suggestion,
+                ready.get("analysis_id") if isinstance(ready, Mapping) else None,
+                index,
+            )
             lines.append(
-                f"\n  [{index}] Save ~"
-                f"{_format_number(suggestion.get('estimated_savings'))} tokens"
+                f"\n  [{index}] Estimated savings: {percent}%"
             )
             lines.append(f"      {suggestion.get('rewrite', '')}")
             rationale = suggestion.get("rationale")

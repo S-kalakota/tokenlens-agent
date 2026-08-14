@@ -225,9 +225,7 @@ def build_feature_row(prompt: str, ctx: PredictionContext) -> FeatureRow:
         "line_count": max(1, len(lines)),
         "fenced_block_count": _fenced_block_count(lines),
         "duplicate_line_ratio": _duplicate_line_ratio(normalized_lines),
-        "repeated_block_token_share": _repeated_block_token_share(
-            normalized_lines
-        ),
+        "repeated_block_token_share": _repeated_block_token_share(normalized_lines),
         "path_token_count": _path_token_count(prompt),
         "whitespace_ratio": sum(character.isspace() for character in prompt)
         / len(prompt),

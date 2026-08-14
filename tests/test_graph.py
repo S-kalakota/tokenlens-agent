@@ -91,6 +91,30 @@ class NodeBehaviorTests(unittest.TestCase):
 
         self.assertEqual(result["scored_rewrites"], [])
 
+    def test_rescore_keeps_unverified_rewrite_in_forced_display_mode(self) -> None:
+        state = {
+            "prompt": "conversational original",
+            "session_id": "session-1",
+            "force_suggestions": True,
+            "ctx": {**context(), "calibration_bias": 0.0},
+            "predicted_cost": {"p10": 200.0, "p50": 398.0, "p90": 700.0},
+            "candidate_rewrites": [
+                {
+                    "rewrite": "Direct alternative.",
+                    "rationale": "Remove conversational boilerplate.",
+                    "suggestion_type": "trim_boilerplate",
+                }
+            ],
+        }
+        with patch(
+            "agent.nodes.rescore.predict_many",
+            return_value=[{"p10": 250.0, "p50": 466.0, "p90": 800.0}],
+        ):
+            result = rescore(state)
+
+        self.assertEqual(len(result["scored_rewrites"]), 1)
+        self.assertEqual(result["scored_rewrites"][0]["estimated_savings"], 0.0)
+
     def test_retrieve_filters_mature_low_acceptance_types(self) -> None:
         state = {
             "prompt": "A costly prompt",

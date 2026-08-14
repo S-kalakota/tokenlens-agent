@@ -6,9 +6,10 @@ and proposes and rescores up to three rewrites. The target product flow runs in
 the native `claude` composer: first Enter analyzes, Accept or Skip freezes a
 choice, and second Enter releases that prompt exactly once.
 
-It is a companion service: it does not import or require the TokenLens product at
-runtime. A versioned LightGBM artifact and exported TokenLens history can be
-supplied later; committed fixtures provide a complete offline demo meanwhile.
+It is a companion service: it does not import or require another TokenLens
+runtime. The repository now vendors the trained 12,052-row output-token model
+from `nkanthed06/Token_Counter`; committed fixtures still provide a complete
+offline demo.
 
 ## Native Claude Code status
 
@@ -102,8 +103,9 @@ Copy `.env.example` to the ignored `.env` file and configure:
   savings and the current cost shape select between them at
   `TOKENLENS_REASON_STRONG_UPSIDE_TOKENS` (default 400 tokens). Setting the
   legacy `TOKENLENS_REASON_MODEL` forces one model and disables this routing.
-- `model/booster.txt` with the versioned LightGBM artifact trained against the
-  exact feature order in `model/featurizer.py`.
+- `TOKENLENS_TARGET_MODEL=claude-haiku-4-5` or `claude-sonnet-5`, the two model
+  families represented in the vendored estimator's training data. Other model
+  IDs use the explicit 1,200-output-token assumption.
 - `CLAUDE_BIN` if the Claude Code executable is not named `claude`.
 - `TOKENLENS_STUB=0` to activate real adapters.
 
@@ -113,9 +115,12 @@ This prevents an already approved harness prompt from being gated twice while
 keeping the user's auth, model setting, project instructions, sessions, and
 other plugins.
 
-If a booster is temporarily unavailable, setting
-`TOKENLENS_MODEL_FALLBACK=heuristic` explicitly enables a deterministic
-development estimate. This is not a silent production fallback.
+`model/model_combined.joblib` is checksum-validated and loaded once per process.
+Its exact 14-feature mapping, empirical interval, upstream commits, 1,200-token
+fallback, and 590-token validation fixture are recorded in
+`model/output_model_manifest.json`. If that artifact cannot load, setting
+`TOKENLENS_MODEL_FALLBACK=heuristic` explicitly enables the older deterministic
+development estimate.
 
 Create collections and indexes, then backfill exported JSON or JSONL history:
 

@@ -1,4 +1,4 @@
-"""Cached LightGBM cost prediction with a deterministic development fallback."""
+"""Batched output-token prediction with legacy and development fallbacks."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from config import load_stub_data, stub_enabled
 from contracts import CostBand, PredictionContext
+from model import output_estimator
 from model.featurizer import (
     FEATURE_ORDER,
     FeatureRow,
@@ -114,9 +115,7 @@ def _stub_prediction(prompt: str, ctx: PredictionContext) -> CostBand:
     prompt_tokens = _numeric(row, "prompt_token_estimate")
     duplicate_ratio = _numeric(row, "duplicate_line_ratio")
     repeated_share = _numeric(row, "repeated_block_token_share")
-    structural_tokens = prompt_tokens * (
-        0.30 * duplicate_ratio + 0.35 * repeated_share
-    )
+    structural_tokens = prompt_tokens * (0.30 * duplicate_ratio + 0.35 * repeated_share)
     excess_tokens = max(0.0, prompt_tokens - _STUB_REFERENCE_TOKENS)
     adjustment = (excess_tokens + structural_tokens) * _STUB_TOKENS_TO_COST
 
@@ -128,10 +127,7 @@ def _stub_prediction(prompt: str, ctx: PredictionContext) -> CostBand:
 
 
 def _heuristic_enabled() -> bool:
-    return (
-        os.getenv(HEURISTIC_FALLBACK_ENV, "").strip().lower()
-        in _HEURISTIC_VALUES
-    )
+    return os.getenv(HEURISTIC_FALLBACK_ENV, "").strip().lower() in _HEURISTIC_VALUES
 
 
 def _numeric(row: FeatureRow, feature: str) -> float:
@@ -200,9 +196,13 @@ def _prediction_rows(raw: Any, expected_rows: int) -> list[tuple[float, ...]]:
         raise PredictorContractError("Booster returned an unsupported prediction shape")
 
     plain = [_as_plain_data(value) for value in raw]
-    if expected_rows == 1 and len(plain) == 3 and all(
-        isinstance(value, (int, float)) and not isinstance(value, bool)
-        for value in plain
+    if (
+        expected_rows == 1
+        and len(plain) == 3
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for value in plain
+        )
     ):
         return [tuple(_finite_prediction(value) for value in plain)]
 
@@ -227,10 +227,7 @@ def _prediction_rows(raw: Any, expected_rows: int) -> list[tuple[float, ...]]:
         for value in plain
     ):
         return [
-            tuple(
-                _finite_prediction(item)
-                for item in plain[index : index + 3]
-            )
+            tuple(_finite_prediction(item) for item in plain[index : index + 3])
             for index in range(0, len(plain), 3)
         ]
     raise PredictorContractError(
@@ -257,20 +254,22 @@ def _real_or_heuristic_predictions(
     prompts: Sequence[str],
     ctx: PredictionContext,
 ) -> list[CostBand]:
-    rows = [build_feature_row(prompt, ctx) for prompt in prompts]
     bias = float(ctx["calibration_bias"])
 
     if _BOOSTER is None:
-        if not _heuristic_enabled():
-            reason = _BOOSTER_UNAVAILABLE_REASON or "no booster was loaded"
-            raise PredictorUnavailableError(
-                f"Real cost prediction is unavailable: {reason}. Replace "
-                f"{BOOSTER_PATH.name} with a valid artifact and install lightgbm, "
-                f"or explicitly set {HEURISTIC_FALLBACK_ENV}=heuristic for "
-                "development-only estimates."
-            )
+        if output_estimator.model_available() or not _heuristic_enabled():
+            predictions = output_estimator.predict_output_many(prompts, ctx)
+            bands: list[CostBand] = []
+            for prediction in predictions:
+                band = deepcopy(prediction["band"])
+                for quantile in ("p10", "p50", "p90"):
+                    band[quantile] = max(0.0, float(band[quantile]) + bias)
+                bands.append(band)
+            return bands
+        rows = [build_feature_row(prompt, ctx) for prompt in prompts]
         raw_rows = [(point,) for point in _heuristic_points(rows)]
     else:
+        rows = [build_feature_row(prompt, ctx) for prompt in prompts]
         _validate_booster_contract(_BOOSTER)
         # This is deliberately one call for the whole candidate set.  Building
         # rows in a Python loop is feature extraction; booster inference itself
@@ -278,7 +277,11 @@ def _real_or_heuristic_predictions(
         matrix = [list(feature_vector_from_row(row)) for row in rows]
         raw_rows = _prediction_rows(_BOOSTER.predict(matrix), len(prompts))
 
-    return [_to_cost_band(values, bias) for values in raw_rows]
+    source = "heuristic" if _BOOSTER is None else "legacy_lightgbm"
+    bands = [_to_cost_band(values, bias) for values in raw_rows]
+    for band in bands:
+        band["source"] = source
+    return bands
 
 
 def predict(prompt: str, ctx: PredictionContext) -> CostBand:

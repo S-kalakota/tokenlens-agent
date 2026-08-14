@@ -65,8 +65,7 @@ class StubBoundaryTests(unittest.TestCase):
             ["dedupe"],
         )
         hits = match_blocks(
-            "```sql\nCREATE TABLE repeated_fixture "
-            "(id bigint primary key);\n```",
+            "```sql\nCREATE TABLE repeated_fixture (id bigint primary key);\n```",
             "user-1",
             "fixture-project",
         )
@@ -97,11 +96,14 @@ class StubBoundaryTests(unittest.TestCase):
         self.assertTrue(session_document_id.startswith("stub-session-"))
         self.assertEqual(suggestion_ids, ["stub-suggestion-1"])
 
-    def test_non_stub_boundaries_fail_instead_of_faking_real_services(self) -> None:
+    def test_non_stub_predictor_is_real_while_database_boundary_stays_real(
+        self,
+    ) -> None:
         ctx, _ = load_context("user-1", "session-1", None)
+        ctx["target_model"] = "claude-haiku-4-5"
         with patch.dict(os.environ, {"TOKENLENS_STUB": "0"}, clear=False):
-            with self.assertRaises(NotImplementedError):
-                predict("A prompt", ctx)
+            prediction = predict("A prompt", ctx)
+            self.assertEqual(prediction["source"], "trained_output_model")
             with patch(
                 "db.repo._database",
                 side_effect=RuntimeError("real database invoked"),

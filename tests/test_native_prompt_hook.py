@@ -70,8 +70,17 @@ class NativePromptHookTests(unittest.TestCase):
         self.assertEqual(first["decision"], "block")
         self.assertIn("A shorter prompt.", first["reason"])
         self.assertIn("Estimated cost", first["reason"])
+        self.assertRegex(first["reason"], r"Estimated savings: (?:1[0-9]|20)%")
+        self.assertNotIn("Save ~", first["reason"])
         self.assertIn("UP then ENTER", first["reason"])
         self.assertIsNone(second)
+
+    def test_percentage_is_stable_for_an_analysis(self) -> None:
+        events = asyncio.run(_events({}))
+        first = HOOK.format_analysis(events)
+        second = HOOK.format_analysis(events)
+
+        self.assertEqual(first, second)
 
     def test_edit_requires_a_fresh_analysis(self) -> None:
         calls: list[str] = []

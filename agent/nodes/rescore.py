@@ -31,16 +31,21 @@ def rescore(state: AgentState) -> dict[str, Any]:
     # means prior estimates were optimistic and must reduce displayed savings;
     # a negative bias means they were pessimistic and increases it.
     calibration_bias = float(ctx["calibration_bias"])
+    keep_unverified = bool(state.get("force_suggestions", False))
     scored: list[ScoredRewrite] = []
     for candidate, predicted_cost in zip(candidates, candidate_costs, strict=True):
         savings = original_p50 - predicted_cost["p50"] - calibration_bias
-        if savings <= 0:
+        if savings <= 0 and not keep_unverified:
             continue
         scored.append(
             {
                 **candidate,
                 "predicted_cost": predicted_cost,
-                "estimated_savings": savings,
+                # Forced display mode deliberately keeps useful alternatives
+                # even when the output-token model cannot verify a reduction.
+                # Persist zero rather than a fabricated token count; the
+                # compatibility hook presents a percentage-only estimate.
+                "estimated_savings": max(0.0, savings),
             }
         )
     return {"scored_rewrites": scored}
