@@ -1,5 +1,6 @@
 {
   "name": "tokenlens",
+  "description": "Local-first prompt cost estimation for Cursor and Claude Code.",
   "owner": {
     "name": "S-kalakota"
   },
