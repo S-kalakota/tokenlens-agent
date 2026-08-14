@@ -1,0 +1,21 @@
+{
+  "name": "tokenlens-claude-code",
+  "version": "0.2.0",
+  "description": "Claude Code plugin that estimates a prompt's cost and pauses it until you confirm.",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/S-kalakota/Cursor_Token_Price_Estimator.git",
+    "directory": "claude-code"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "validate": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

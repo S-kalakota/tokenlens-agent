@@ -1,0 +1,159 @@
+{
+  "feature_schema_version": "tokenlens.ml-features.v1",
+  "payload_schema": "contracts/ml-feature-payload.v1.schema.json",
+  "model_version": "tokenlens-cost-model-v1-combined",
+  "collector_version": "1.0.0",
+  "compatibility_status": "v1-http-inference",
+  "inference": {
+    "runtime": "tokenlens-http-v1",
+    "endpoint": "http://127.0.0.1:8787/v1/predict",
+    "timeout_ms": 2000,
+    "service": "https://github.com/nkanthed06/Token_Counter",
+    "trained_on_models": ["claude-haiku-4-5", "claude-sonnet-5"],
+    "preprocessing_artifact": null,
+    "preprocessing_sha256": null,
+    "model_artifact": "model/model_combined.joblib",
+    "model_sha256": null
+  },
+  "feature_order": [
+    "output_format",
+    "task_type",
+    "repo_id",
+    "model_id",
+    "detail_level",
+    "input_tokens",
+    "attached_code_tokens",
+    "relevant_code_tokens",
+    "task_word_count",
+    "n_requirements",
+    "question_count",
+    "codebase_lines",
+    "codebase_files",
+    "n_files_attached"
+  ],
+  "categorical_features": {
+    "output_format": [
+      "code",
+      "json",
+      "markdown",
+      "patch",
+      "plain_text",
+      "table",
+      "unspecified"
+    ],
+    "task_type": [
+      "bug_fix",
+      "configuration",
+      "documentation",
+      "explanation",
+      "feature",
+      "refactor",
+      "research",
+      "review",
+      "test",
+      "other"
+    ],
+    "repo_id": [
+      "cursor_token_price_estimator",
+      "unknown"
+    ],
+    "model_id": [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-haiku-4-5",
+      "unknown"
+    ],
+    "detail_level": [
+      "concise",
+      "standard",
+      "detailed"
+    ]
+  },
+  "defaults": {
+    "output_format": "unspecified",
+    "task_type": "other",
+    "repo_id": "unknown",
+    "model_id": "unknown",
+    "detail_level": "standard",
+    "input_tokens": 0,
+    "attached_code_tokens": 0,
+    "relevant_code_tokens": 0,
+    "task_word_count": 0,
+    "n_requirements": 0,
+    "question_count": 0,
+    "codebase_lines": 0,
+    "codebase_files": 0,
+    "n_files_attached": 0
+  },
+  "numeric_features": {
+    "input_tokens": { "type": "integer", "minimum": 0 },
+    "attached_code_tokens": { "type": "integer", "minimum": 0 },
+    "relevant_code_tokens": { "type": "integer", "minimum": 0 },
+    "task_word_count": { "type": "integer", "minimum": 0 },
+    "n_requirements": { "type": "integer", "minimum": 0 },
+    "question_count": { "type": "integer", "minimum": 0 },
+    "codebase_lines": { "type": "integer", "minimum": 0 },
+    "codebase_files": { "type": "integer", "minimum": 0 },
+    "n_files_attached": { "type": "integer", "minimum": 0 }
+  },
+  "tokenizer": {
+    "name": "tokenlens-unicode-char4",
+    "version": "1.0.0",
+    "characters_per_token": 4,
+    "normalization": "newline-only"
+  },
+  "parsers": {
+    "categorical": "deterministic-keywords-v1",
+    "requirements": "clause-requirements-v1",
+    "questions": "question-units-v1",
+    "mentions": "claude-at-mentions-v1",
+    "references": "repository-path-references-v1"
+  },
+  "output_format_precedence": ["json", "patch", "table", "markdown", "plain_text", "code"],
+  "task_type_tie_break": ["bug_fix", "feature", "refactor", "test", "configuration", "documentation", "review", "research", "explanation"],
+  "model_id_resolution": {
+    "fallback": "unknown",
+    "aliases": {
+      "opus": "claude-opus-5",
+      "sonnet": "claude-sonnet-5",
+      "haiku": "claude-haiku-4-5",
+      "claude-opus-5": "claude-opus-5",
+      "claude-sonnet-5": "claude-sonnet-5",
+      "claude-haiku-4-5": "claude-haiku-4-5",
+      "claude-haiku-4-5-20251001": "claude-haiku-4-5"
+    },
+    "dated_suffix_pattern": "-\\d{8}$"
+  },
+  "repository": {
+    "include_untracked": true,
+    "extensions": [
+      ".c", ".cc", ".cpp", ".cs", ".css", ".dart", ".ex", ".exs", ".go", ".graphql",
+      ".h", ".hpp", ".html", ".java", ".js", ".json", ".jsx", ".kt", ".kts", ".lua",
+      ".md", ".mjs", ".mts", ".php", ".proto", ".py", ".rb", ".rs", ".scss", ".sh",
+      ".sql", ".svelte", ".swift", ".toml", ".ts", ".tsx", ".vue", ".xml", ".yaml", ".yml"
+    ],
+    "extensionless_names": ["Dockerfile", "Makefile", "Procfile"],
+    "excluded_names": [
+      ".env", ".env.local", ".env.production", ".env.development", ".env.test",
+      "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb",
+      "composer.lock", "Gemfile.lock", "Cargo.lock", "Podfile.lock"
+    ],
+    "excluded_directories": [
+      ".git", ".hg", ".svn", ".next", ".nuxt", ".output", ".terraform", ".venv",
+      "build", "coverage", "dist", "generated", "node_modules", "target", "vendor"
+    ],
+    "max_file_bytes": 1048576,
+    "max_files": 5000,
+    "max_total_bytes": 33554432,
+    "max_mentioned_files": 128,
+    "max_relevant_files": 256,
+    "max_relevant_bytes": 8388608,
+    "line_count": "physical-v1",
+    "inclusion_rule_version": "source-config-docs-v1"
+  },
+  "reference_tokenization": {
+    "strategy": "sum-segments",
+    "separator": "\n"
+  },
+  "attachment_semantics": "mention_derived"
+}
