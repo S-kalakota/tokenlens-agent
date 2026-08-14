@@ -4,10 +4,10 @@ import hashlib
 import math
 import re
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 from contracts import BlockFingerprint, BlockKind
-
 
 WINDOW_LINE_COUNT = 20
 _OPENING_FENCE = re.compile(r"^\s*(`{3,}|~{3,})[^\n]*$")
@@ -116,10 +116,72 @@ def fingerprint_prompt(
     ]
 
 
-def upsert_block_fingerprints(*args: Any, **kwargs: Any) -> None:
-    """Persist fingerprints and occurrence counts in MongoDB."""
+def upsert_block_fingerprints(
+    collection: Any,
+    prompt: str,
+    user_id: str,
+    project: str | None,
+    *,
+    now: datetime | None = None,
+) -> list[BlockFingerprint]:
+    """Fingerprint one prompt and increment each distinct library block once.
 
-    del args, kwargs
-    raise NotImplementedError(
-        "Block-library persistence is implemented in Part 3 (Agent B)"
+    A prompt can yield the same digest as both a fenced block and a line
+    window. De-duplicating hashes here prevents overlap from inflating the
+    cross-prompt occurrence counter.
+    """
+
+    if not user_id.strip():
+        raise ValueError("user_id must be non-empty")
+    timestamp = now or datetime.now(UTC)
+    unique: dict[str, BlockFingerprint] = {}
+    for fingerprint in fingerprint_prompt(prompt):
+        unique.setdefault(fingerprint["block_hash"], fingerprint)
+
+    for fingerprint in unique.values():
+        collection.update_one(
+            {
+                "user_id": user_id,
+                "project": project,
+                "block_hash": fingerprint["block_hash"],
+            },
+            {
+                "$setOnInsert": {
+                    "kind": fingerprint["kind"],
+                    "normalized_text": fingerprint["normalized_text"],
+                    "token_count": fingerprint["token_count"],
+                    "collapse_accepted": 0,
+                    "first_seen_at": timestamp,
+                },
+                "$set": {"last_seen_at": timestamp},
+                "$inc": {"occurrences": 1},
+            },
+            upsert=True,
+        )
+    return list(unique.values())
+
+
+def increment_collapse_acceptance(
+    collection: Any,
+    *,
+    user_id: str,
+    project: str | None,
+    block_hashes: list[str],
+    session: Any | None = None,
+) -> int:
+    """Record an accepted collapse for its source blocks."""
+
+    unique_hashes = list(dict.fromkeys(block_hashes))
+    if not unique_hashes:
+        return 0
+    options = {"session": session} if session is not None else {}
+    result = collection.update_many(
+        {
+            "user_id": user_id,
+            "project": project,
+            "block_hash": {"$in": unique_hashes},
+        },
+        {"$inc": {"collapse_accepted": 1}},
+        **options,
     )
+    return int(getattr(result, "modified_count", 0))

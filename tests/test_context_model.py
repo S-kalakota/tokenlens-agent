@@ -1,10 +1,30 @@
 import unittest
+from unittest.mock import MagicMock
 
-from db.blocks import fingerprint_prompt, hash_block, normalize_block
+from db.blocks import (
+    fingerprint_prompt,
+    hash_block,
+    normalize_block,
+    upsert_block_fingerprints,
+)
 from db.profile import empty_profile, shrunk_acceptance_stats
 
 
 class BlockFingerprintTests(unittest.TestCase):
+    def test_upsert_does_not_initialize_and_increment_the_same_path(self) -> None:
+        collection = MagicMock()
+
+        upsert_block_fingerprints(
+            collection,
+            "```sql\nCREATE TABLE example (id bigint);\n```",
+            "user-1",
+            "project-1",
+        )
+
+        update = collection.update_one.call_args.args[1]
+        self.assertNotIn("occurrences", update["$setOnInsert"])
+        self.assertEqual(update["$inc"]["occurrences"], 1)
+
     def test_whitespace_variants_have_the_same_hash(self) -> None:
         first = normalize_block("CREATE   TABLE example (\n id bigint\n)")
         second = normalize_block(" CREATE TABLE example ( id bigint ) ")

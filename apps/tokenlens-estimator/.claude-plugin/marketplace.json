@@ -1,0 +1,16 @@
+{
+  "name": "tokenlens",
+  "description": "Local-first prompt cost estimation for Cursor and Claude Code.",
+  "owner": {
+    "name": "S-kalakota"
+  },
+  "plugins": [
+    {
+      "name": "tokenlens",
+      "source": "./claude-code",
+      "description": "Pauses each Claude Code prompt once to show what sending it would cost, then sends it unchanged when you confirm.",
+      "version": "0.2.0",
+      "defaultEnabled": false
+    }
+  ]
+}

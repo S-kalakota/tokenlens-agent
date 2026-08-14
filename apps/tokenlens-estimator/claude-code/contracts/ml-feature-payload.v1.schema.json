@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tokenlens.dev/contracts/ml-feature-payload.v1.schema.json",
+  "title": "TokenLens ML feature payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "features", "collection"],
+  "properties": {
+    "schema_version": {
+      "const": "tokenlens.ml-features.v1"
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output_format",
+        "task_type",
+        "repo_id",
+        "model_id",
+        "detail_level",
+        "input_tokens",
+        "attached_code_tokens",
+        "relevant_code_tokens",
+        "task_word_count",
+        "n_requirements",
+        "question_count",
+        "codebase_lines",
+        "codebase_files",
+        "n_files_attached"
+      ],
+      "properties": {
+        "output_format": {
+          "enum": ["code", "json", "markdown", "patch", "plain_text", "table", "unspecified"]
+        },
+        "task_type": {
+          "enum": ["bug_fix", "configuration", "documentation", "explanation", "feature", "refactor", "research", "review", "test", "other"]
+        },
+        "repo_id": {
+          "enum": ["cursor_token_price_estimator", "unknown"]
+        },
+        "model_id": {
+          "enum": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5", "unknown"]
+        },
+        "detail_level": {
+          "enum": ["concise", "standard", "detailed"]
+        },
+        "input_tokens": { "$ref": "#/$defs/count" },
+        "attached_code_tokens": { "$ref": "#/$defs/count" },
+        "relevant_code_tokens": { "$ref": "#/$defs/count" },
+        "task_word_count": { "$ref": "#/$defs/count" },
+        "n_requirements": { "$ref": "#/$defs/count" },
+        "question_count": { "$ref": "#/$defs/count" },
+        "codebase_lines": { "$ref": "#/$defs/count" },
+        "codebase_files": { "$ref": "#/$defs/count" },
+        "n_files_attached": { "$ref": "#/$defs/count" }
+      }
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "tokenizer",
+        "collector_version",
+        "duration_ms",
+        "warnings",
+        "parsers",
+        "attachment_semantics"
+      ],
+      "properties": {
+        "complete": { "type": "boolean" },
+        "tokenizer": { "type": "string", "minLength": 1 },
+        "collector_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "duration_ms": { "$ref": "#/$defs/count" },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "parsers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["categorical", "requirements", "questions", "mentions", "references"],
+          "properties": {
+            "categorical": { "type": "string" },
+            "requirements": { "type": "string" },
+            "questions": { "type": "string" },
+            "mentions": { "type": "string" },
+            "references": { "type": "string" }
+          }
+        },
+        "attachment_semantics": { "const": "mention_derived" }
+      }
+    }
+  },
+  "$defs": {
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}
