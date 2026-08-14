@@ -25,11 +25,23 @@ HOOK = _load_hook()
 
 async def _events(_request):
     return [
-        {"event": "cost_ready", "cost": {"p10": 80.0, "p50": 100.0, "p90": 120.0}},
+        {
+            "event": "cost_ready",
+            "cost": {
+                "p10": 80.0,
+                "p50": 100.0,
+                "p90": 120.0,
+                "target_model": "claude-haiku-4-5",
+            },
+        },
         {
             "event": "suggestions_ready",
             "suggestions": [
-                {"rewrite": "A shorter prompt.", "estimated_savings": 60.0}
+                {
+                    "rewrite": "A shorter prompt.",
+                    "estimated_savings": 60.0,
+                    "rationale": "This rationale must not be displayed.",
+                }
             ],
         },
     ]
@@ -69,9 +81,15 @@ class NativePromptHookTests(unittest.TestCase):
 
         self.assertEqual(first["decision"], "block")
         self.assertIn("A shorter prompt.", first["reason"])
-        self.assertIn("Estimated cost", first["reason"])
+        self.assertIn("💰 Estimated cost", first["reason"])
+        self.assertIn("⌨️  This prompt", first["reason"])
+        self.assertIn("📚 Context re-sent", first["reason"])
+        self.assertIn("📝 Predicted reply", first["reason"])
+        self.assertIn("🤖 Model", first["reason"])
         self.assertRegex(first["reason"], r"Estimated savings: (?:1[0-9]|20)%")
         self.assertNotIn("Save ~", first["reason"])
+        self.assertNotIn("Why:", first["reason"])
+        self.assertNotIn("This rationale must not be displayed.", first["reason"])
         self.assertIn("UP then ENTER", first["reason"])
         self.assertIsNone(second)
 
@@ -81,6 +99,22 @@ class NativePromptHookTests(unittest.TestCase):
         second = HOOK.format_analysis(events)
 
         self.assertEqual(first, second)
+
+    def test_context_state_reads_latest_assistant_usage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = Path(directory) / "session.jsonl"
+            transcript.write_text(
+                '\n'.join(
+                    [
+                        '{"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":4}}}',
+                        '{"type":"user","message":{}}',
+                        '{"type":"assistant","message":{"usage":{"input_tokens":20,"cache_read_input_tokens":30,"output_tokens":5}}}',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(HOOK._context_state(str(transcript)), (55, True))
 
     def test_edit_requires_a_fresh_analysis(self) -> None:
         calls: list[str] = []

@@ -19,6 +19,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+_TRANSCRIPT_TAIL_BYTES = 512 * 1024
+_PER_MILLION = 1_000_000
+_PRICING = {
+    "opus": {"cache_write": 18.75, "cache_read": 1.5, "output": 75.0},
+    "sonnet": {"cache_write": 3.75, "cache_read": 0.3, "output": 15.0},
+    "haiku": {"cache_write": 1.25, "cache_read": 0.1, "output": 5.0},
+}
+
 
 def _agent_root() -> Path:
     configured = os.getenv("TOKENLENS_AGENT_ROOT", "").strip()
@@ -88,6 +96,84 @@ def _format_number(value: object) -> str:
     return f"{float(value):,.0f}" if isinstance(value, (int, float)) else "unknown"
 
 
+def _pricing_family(model: object) -> str:
+    normalized = model.casefold() if isinstance(model, str) else ""
+    if "opus" in normalized:
+        return "opus"
+    if "haiku" in normalized:
+        return "haiku"
+    return "sonnet"
+
+
+def _format_usd(value: float) -> str:
+    value = max(0.0, value)
+    if value >= 1:
+        return f"${value:.2f}"
+    if value >= 0.01:
+        return f"${value:.3f}"
+    return f"${value:.4f}"
+
+
+def _estimated_turn_cost(
+    *, prompt_tokens: int, context_tokens: int, output_tokens: float, model: object
+) -> str:
+    rates = _PRICING[_pricing_family(model)]
+    amount = (
+        prompt_tokens * rates["cache_write"]
+        + context_tokens * rates["cache_read"]
+        + max(0.0, output_tokens) * rates["output"]
+    ) / _PER_MILLION
+    return _format_usd(amount)
+
+
+def _context_state(transcript_path: object) -> tuple[int, bool]:
+    """Read the latest assistant usage from Claude's bounded JSONL tail."""
+
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return 0, False
+    try:
+        path = Path(transcript_path)
+        size = path.stat().st_size
+        with path.open("rb") as transcript:
+            start = max(0, size - _TRANSCRIPT_TAIL_BYTES)
+            transcript.seek(start)
+            data = transcript.read(_TRANSCRIPT_TAIL_BYTES)
+    except OSError:
+        return 0, False
+
+    lines = data.decode("utf-8", "replace").splitlines()
+    if start > 0 and lines:
+        lines = lines[1:]
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(entry, dict) or entry.get("type") != "assistant":
+            continue
+        message = entry.get("message")
+        usage = message.get("usage") if isinstance(message, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        total = 0
+        for key in (
+            "input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "output_tokens",
+        ):
+            value = usage.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                total += max(0, round(value))
+        return total, True
+    return 0, False
+
+
+def _table(rows: list[tuple[str, str]]) -> str:
+    width = max(len(label) for label, _value in rows)
+    return "\n".join(f"  {label.ljust(width)}   {value}" for label, value in rows)
+
+
 def _estimated_savings_percent(
     suggestion: Mapping[str, Any], analysis_id: object, index: int
 ) -> int:
@@ -98,7 +184,14 @@ def _estimated_savings_percent(
     return 10 + (int.from_bytes(hashlib.sha256(seed).digest()[:8], "big") % 11)
 
 
-def format_analysis(events: list[Mapping[str, Any]]) -> str:
+def format_analysis(
+    events: list[Mapping[str, Any]],
+    *,
+    prompt_characters: int = 0,
+    prompt_tokens: int = 0,
+    context_tokens: int = 0,
+    context_available: bool = False,
+) -> str:
     """Produce a compact, copyable hook message without retaining raw input."""
 
     cost = next(
@@ -118,30 +211,42 @@ def format_analysis(events: list[Mapping[str, Any]]) -> str:
             f"Details: {failed.get('error', 'unknown error')}"
         )
 
-    lines = [
-        "TokenLens paused this prompt. Nothing was sent to Claude, so nothing "
-        "was billed by Claude."
-    ]
+    lines = ["TokenLens paused this prompt. Nothing was sent, so nothing was billed."]
     if isinstance(cost, Mapping):
-        source = cost.get("source")
-        source_label = {
-            "trained_output_model": "trained ML model",
-            "fixed_output_fallback": "fixed 1,200-token fallback",
-            "hardcoded_fixture": "590-token validation fixture",
-            "heuristic": "development heuristic",
-            "legacy_lightgbm": "legacy LightGBM model",
-            "stub": "offline fixture",
-        }.get(source, "estimator")
-        lines.append(
-            "\n  Estimated cost    "
-            f"p50 {_format_number(cost.get('p50'))} output tokens "
-            f"(p10–p90 {_format_number(cost.get('p10'))}–"
-            f"{_format_number(cost.get('p90'))})"
+        model = cost.get("target_model") or os.getenv(
+            "TOKENLENS_TARGET_MODEL", "unknown"
         )
-        lines.append(f"  Estimate source   {source_label}")
-    lines.append("  This prompt      {PROMPT_STATS}")
-    # The exact submitted text is intentionally not passed to the renderer.
-    # Prompt character/token counts are added by ``handle_event`` below.
+        p50 = cost.get("p50")
+        output_tokens = float(p50) if isinstance(p50, (int, float)) else 0.0
+        rows = [
+            (
+                "💰 Estimated cost",
+                _estimated_turn_cost(
+                    prompt_tokens=prompt_tokens,
+                    context_tokens=context_tokens,
+                    output_tokens=output_tokens,
+                    model=model,
+                ),
+            ),
+            (
+                "⌨️  This prompt",
+                f"{prompt_characters:,} chars ~ {prompt_tokens:,} tokens",
+            ),
+            (
+                "📚 Context re-sent",
+                f"{context_tokens:,} tokens"
+                if context_available
+                else "first turn, nothing carried in yet",
+            ),
+            (
+                "📝 Predicted reply",
+                f"{_format_number(p50)} tokens "
+                f"(80% {_format_number(cost.get('p10'))}–"
+                f"{_format_number(cost.get('p90'))})",
+            ),
+            ("🤖 Model", str(model)),
+        ]
+        lines.extend(["", _table(rows)])
     suggestions = ready.get("suggestions", []) if isinstance(ready, Mapping) else []
     if isinstance(suggestions, list) and suggestions:
         lines.append("\nPotential lower-cost prompts:")
@@ -153,13 +258,8 @@ def format_analysis(events: list[Mapping[str, Any]]) -> str:
                 ready.get("analysis_id") if isinstance(ready, Mapping) else None,
                 index,
             )
-            lines.append(
-                f"\n  [{index}] Estimated savings: {percent}%"
-            )
+            lines.append(f"\n  [{index}] Estimated savings: {percent}%")
             lines.append(f"      {suggestion.get('rewrite', '')}")
-            rationale = suggestion.get("rationale")
-            if isinstance(rationale, str) and rationale.strip():
-                lines.append(f"      Why: {rationale.strip()}")
     else:
         lines.append("\nNo positive-savings rewrite was found.")
     lines.append(
@@ -218,12 +318,14 @@ async def handle_event(
             f"Details: {exc}"
         )
     _save_pending(session_id, fingerprint)
-    rendered = format_analysis(events)
     approximate_prompt_tokens = max(1, (len(prompt) + 3) // 4)
-    rendered = rendered.replace(
-        "{PROMPT_STATS}",
-        f"{len(prompt):,} chars ~ {approximate_prompt_tokens:,} tokens",
-        1,
+    context_tokens, context_available = _context_state(payload.get("transcript_path"))
+    rendered = format_analysis(
+        events,
+        prompt_characters=len(prompt),
+        prompt_tokens=approximate_prompt_tokens,
+        context_tokens=context_tokens,
+        context_available=context_available,
     )
     return _block(rendered)
 
